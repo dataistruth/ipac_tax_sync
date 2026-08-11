@@ -49,5 +49,13 @@ def client_transform_dir(client_nm: str) -> Path:
     return client_src_dir(client_nm) / "transform"
 
 
+def client_sql_dir(client_nm: str) -> Path:
+    return client_src_dir(client_nm) / "sql"
+
+
 def generated_bundle_dir() -> Path:
     return project_root() / "generated" / "bundle"
+
+
+def generated_schema_dir() -> Path:
+    return project_root() / "generated" / "schema"

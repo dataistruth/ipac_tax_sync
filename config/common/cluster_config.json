@@ -1,37 +1,44 @@
 {
   "tiers": {
-    "1": {
-      "label": "tier_1_lowest",
-      "description": "Lowest — dims / very low volume",
+    "s1": {
+      "label": "serverless_small",
+      "description": "Serverless small profile (reserved, not for Lakeflow Connect)",
       "serverless": true,
       "min_workers": 1,
       "max_workers": 2
     },
-    "2": {
-      "label": "tier_2",
-      "description": "Light incremental load",
-      "serverless": true,
-      "min_workers": 2,
-      "max_workers": 3
-    },
-    "3": {
-      "label": "tier_3",
-      "description": "Standard CDC workload",
+    "s2": {
+      "label": "serverless_medium",
+      "description": "Serverless medium profile (reserved, not for Lakeflow Connect)",
       "serverless": true,
       "min_workers": 2,
       "max_workers": 4
     },
-    "4": {
-      "label": "tier_4",
-      "description": "Higher priority / wider tables",
+    "s3": {
+      "label": "serverless_large",
+      "description": "Serverless large profile (reserved, not for Lakeflow Connect)",
       "serverless": true,
       "min_workers": 4,
-      "max_workers": 6
+      "max_workers": 8
     },
-    "5": {
-      "label": "tier_5_highest",
-      "description": "Highest — large facts / SLA clients",
-      "serverless": true,
+    "j1": {
+      "label": "job_cluster_small",
+      "description": "Job cluster small for low-volume ingest",
+      "serverless": false,
+      "min_workers": 1,
+      "max_workers": 2
+    },
+    "j2": {
+      "label": "job_cluster_medium",
+      "description": "Job cluster medium for standard ingest",
+      "serverless": false,
+      "min_workers": 2,
+      "max_workers": 4
+    },
+    "j3": {
+      "label": "job_cluster_large",
+      "description": "Job cluster large for wide/high-volume ingest",
+      "serverless": false,
       "min_workers": 4,
       "max_workers": 8
     }

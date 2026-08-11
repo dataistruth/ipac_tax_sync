@@ -37,8 +37,9 @@ def _format_object_lines(
     table: EffectiveTable,
     client: ClientEntry,
     uc_catalog_ref: str,
+    dest_schema_suffix: str,
 ) -> list[str]:
-    raw_schema = client.raw_schema()
+    raw_schema = client.raw_schema(dest_schema_suffix)
     lines = [
         "          - table:",
         f"              source_catalog: '{client.src_db_nm}'",
@@ -51,6 +52,7 @@ def _format_object_lines(
 
     clustering = _parse_lq_key(table.lq_key) if table.has_cluster_by else []
     needs_table_config = clustering or table.scd_type == 2
+    needs_table_config = needs_table_config or table.recon_type != 1
     if needs_table_config:
         lines.append("              table_configuration:")
         if clustering:
@@ -58,6 +60,8 @@ def _format_object_lines(
             lines.append(f"                clustering_columns: [{cols}]")
         if table.scd_type == 2:
             lines.append("                scd_type: 2")
+        if table.recon_type != 1:
+            lines.append(f"                recon_type: {table.recon_type}")
     return lines
 
 
@@ -67,13 +71,14 @@ def _pipeline_resource_lines(
     serial: int,
     cluster_config: ClusterConfig | None,
     uc_catalog_ref: str,
+    dest_schema_suffix: str,
 ) -> list[str]:
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
 
     tier = _tier_for_client(client, cluster_config)
     pipeline_key = pipeline_resource_key(client.client_nm, serial)
-    raw_schema = client.raw_schema()
+    raw_schema = client.raw_schema(dest_schema_suffix)
     volume_name = client.resolved_volume_name()
 
     lines = [
@@ -81,7 +86,7 @@ def _pipeline_resource_lines(
         f"      name: {pipeline_key}",
         "      pipeline_type: MANAGED_INGESTION",
         "      channel: PREVIEW",
-        f"      serverless: {str(tier.serverless if tier else True).lower()}",
+        "      serverless: false",
         "      continuous: true",
         f"      catalog: {uc_catalog_ref}",
         f"      schema: {raw_schema}",
@@ -101,7 +106,7 @@ def _pipeline_resource_lines(
     lines.append("        objects:")
 
     for table in tables:
-        lines.extend(_format_object_lines(table, client, uc_catalog_ref))
+        lines.extend(_format_object_lines(table, client, uc_catalog_ref, dest_schema_suffix))
 
     return lines
 
@@ -113,13 +118,14 @@ def generate_client_pipelines_yaml(
     uc_catalog_ref: str = UC_CATALOG_VAR_REF,
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
+    dest_schema_suffix: str = "",
 ) -> str:
     """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
     if not tables:
         raise ValueError(f"No tables to generate for {client.client_nm}")
 
     batches = chunk_tables(tables, num_of_tables_in_pipeline)
-    raw_schema = client.raw_schema()
+    raw_schema = client.raw_schema(dest_schema_suffix)
     volume_name = client.resolved_volume_name()
     catalog_comment = resolved_uc_catalog or uc_catalog_ref
     tier = _tier_for_client(client, cluster_config)
@@ -127,7 +133,7 @@ def generate_client_pipelines_yaml(
     tier_note = ""
     if tier:
         tier_note = (
-            f"# cluster_tier: {client.cluster_tier} ({tier.label}) — "
+            f"# client_size: {client.client_size} | cluster_tier: {client.cluster_tier} ({tier.label}) — "
             f"{tier.description} (workers {tier.min_workers}-{tier.max_workers})"
         )
 
@@ -153,7 +159,16 @@ def generate_client_pipelines_yaml(
     ]
 
     for serial, batch in enumerate(batches, start=1):
-        lines.extend(_pipeline_resource_lines(client, batch, serial, cluster_config, uc_catalog_ref))
+        lines.extend(
+            _pipeline_resource_lines(
+                client,
+                batch,
+                serial,
+                cluster_config,
+                uc_catalog_ref,
+                dest_schema_suffix,
+            )
+        )
 
     return "\n".join([line for line in lines if line]) + "\n"
 
@@ -165,6 +180,7 @@ def generate_lakeflow_pipeline_yaml(
     uc_catalog_ref: str = UC_CATALOG_VAR_REF,
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
+    dest_schema_suffix: str = "",
 ) -> str:
     """Alias for generate_client_pipelines_yaml."""
     return generate_client_pipelines_yaml(
@@ -174,6 +190,7 @@ def generate_lakeflow_pipeline_yaml(
         uc_catalog_ref=uc_catalog_ref,
         resolved_uc_catalog=resolved_uc_catalog,
         num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+        dest_schema_suffix=dest_schema_suffix,
     )
 
 
@@ -186,6 +203,7 @@ def write_pipeline_yaml(
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
     serial: int | None = None,
+    dest_schema_suffix: str = "",
 ) -> str:
     """Write one pipeline batch to a file (serial required when writing a single batch)."""
     from pathlib import Path
@@ -203,7 +221,7 @@ def write_pipeline_yaml(
             "  pipelines:",
         ]
         body = _pipeline_resource_lines(
-            client, batch, serial, cluster_config, uc_catalog_ref
+            client, batch, serial, cluster_config, uc_catalog_ref, dest_schema_suffix
         )
         content = "\n".join(header + body) + "\n"
     else:
@@ -214,6 +232,7 @@ def write_pipeline_yaml(
             uc_catalog_ref=uc_catalog_ref,
             resolved_uc_catalog=resolved_uc_catalog,
             num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+            dest_schema_suffix=dest_schema_suffix,
         )
 
     path = Path(output_path)
@@ -230,6 +249,7 @@ def write_bundle_pipeline_yaml(
     uc_catalog_ref: str = UC_CATALOG_VAR_REF,
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
+    dest_schema_suffix: str = "",
 ) -> str:
     from pathlib import Path
 
@@ -242,6 +262,7 @@ def write_bundle_pipeline_yaml(
         uc_catalog_ref=uc_catalog_ref,
         resolved_uc_catalog=resolved_uc_catalog,
         num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+        dest_schema_suffix=dest_schema_suffix,
     )
 
 
@@ -253,6 +274,7 @@ def write_client_pipeline_yamls(
     uc_catalog_ref: str = UC_CATALOG_VAR_REF,
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
+    dest_schema_suffix: str = "",
 ) -> list[str]:
     """Write p_<client_nm>_<n>.yml per pipeline batch under src/<client>/pipelines/."""
     from pathlib import Path
@@ -274,6 +296,7 @@ def write_client_pipeline_yamls(
                 resolved_uc_catalog=resolved_uc_catalog,
                 num_of_tables_in_pipeline=num_of_tables_in_pipeline,
                 serial=serial,
+                dest_schema_suffix=dest_schema_suffix,
             )
         )
 

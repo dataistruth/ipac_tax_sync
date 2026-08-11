@@ -24,6 +24,7 @@ def _from_common(table: CommonTable, client: ClientEntry) -> EffectiveTable:
         lq_key=table.lq_key,
         select_cols=table.resolved_select_cols,
         scd_type=table.scd_type,
+        recon_type=table.recon_type,
         is_active=table.is_active,
     )
 
@@ -36,6 +37,7 @@ def _from_extra(table: ClientTableOverride, client: ClientEntry) -> EffectiveTab
         lq_key=table.lq_key,
         select_cols=table.resolved_select_cols,
         scd_type=table.scd_type,
+        recon_type=table.recon_type,
         is_active=table.is_active,
     )
 

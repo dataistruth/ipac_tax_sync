@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 ScdType = Literal[1, 2]
+ReconType = Literal[1, 2, 3]
+ClientSize = Literal["small", "medium", "large"]
+ClusterTierName = Literal["s1", "s2", "s3", "j1", "j2", "j3"]
 
 
 class CommonTable(BaseModel):
@@ -16,6 +19,7 @@ class CommonTable(BaseModel):
     is_active: bool = True
     select_cols: str = ""
     scd_type: ScdType = 1
+    recon_type: ReconType = 1
 
     @property
     def resolved_select_cols(self) -> str:
@@ -41,15 +45,16 @@ class ClientEntry(BaseModel):
     src_db_nm: str
     src_db_schema: str = "dbo"
     uc_conn_nm: str
-    cluster_tier: int = Field(default=3, ge=1, le=5)
+    client_size: ClientSize = "medium"
+    cluster_tier: ClusterTierName = "j2"
 
-    def raw_schema(self) -> str:
-        """UC schema for raw tables and staging — always {client_nm}_raw."""
-        return f"{self.client_nm}_raw"
+    def raw_schema(self, suffix: str = "") -> str:
+        """UC schema for raw tables and staging — {client_nm}{suffix}."""
+        return f"{self.client_nm}{suffix}"
 
-    def staging_schema(self) -> str:
+    def staging_schema(self, suffix: str = "") -> str:
         """Same as raw_schema; staging volume lives inside the raw schema."""
-        return self.raw_schema()
+        return self.raw_schema(suffix)
 
     def resolved_volume_name(self) -> str | None:
         """Optional explicit volume in raw schema; empty → platform creates/uses default in raw."""
@@ -81,6 +86,7 @@ class ClientTableOverride(BaseModel):
     is_active: bool = True
     select_cols: str = ""
     scd_type: ScdType = 1
+    recon_type: ReconType = 1
 
     @property
     def resolved_select_cols(self) -> str:
@@ -117,6 +123,7 @@ class EffectiveTable(BaseModel):
     lq_key: str = ""
     select_cols: str
     scd_type: ScdType = 1
+    recon_type: ReconType = 1
     is_active: bool = True
 
     @property

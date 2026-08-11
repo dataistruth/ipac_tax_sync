@@ -90,6 +90,64 @@ def resolve_num_of_tables_in_pipeline(
     return batch_size
 
 
+def resolve_dest_schema_suffix(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    """Resolve optional destination schema suffix (e.g., '_raw')."""
+    value = _resolve_variable(
+        "dest_schema_suffix",
+        "",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def resolve_ct_grantee(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    """Resolve optional SQL principal for CT grants (empty disables grant statements)."""
+    value = _resolve_variable(
+        "ct_grantee",
+        "",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def resolve_ipac_metadata_schema(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    """Resolve metadata schema used for process logs/operational tables."""
+    value = _resolve_variable(
+        "ipac_metadata_schema",
+        "ipac_metadata",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        resolved = value.strip()
+    else:
+        resolved = str(value).strip()
+    if not resolved:
+        raise ValueError("ipac_metadata_schema must not be empty")
+    return resolved
+
+
 def uc_catalog_var_ref() -> str:
     """Bundle variable reference used in generated pipeline YAML."""
     return UC_CATALOG_VAR_REF

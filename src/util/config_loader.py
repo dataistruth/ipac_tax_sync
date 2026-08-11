@@ -97,6 +97,11 @@ def validate_all(client_nm: str | None = None) -> list[ClientEntry]:
         tier_key = str(client.cluster_tier)
         if tier_key not in cluster_cfg.tiers:
             raise ValueError(f"cluster_tier {client.cluster_tier} not defined in cluster_config.json")
+        if not tier_key.startswith("j"):
+            raise ValueError(
+                f"cluster_tier {client.cluster_tier} is not allowed for Lakeflow Connect; "
+                "use job-cluster tiers j1, j2, or j3"
+            )
         resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
 
     return targets
