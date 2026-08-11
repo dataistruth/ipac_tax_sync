@@ -13,7 +13,9 @@ notifications can deliver email alerts.
 from __future__ import annotations
 
 import argparse
+import json
 import time
+from pathlib import Path
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
@@ -39,6 +41,17 @@ def _list_generated_pipelines(w: WorkspaceClient, name_prefix: str) -> list[dict
     payload = w.api_client.do("GET", "/api/2.0/pipelines")
     statuses = payload.get("statuses", []) if isinstance(payload, dict) else []
     return [p for p in statuses if str(p.get("name", "")).startswith(name_prefix)]
+
+
+def _load_pipeline_names(path: str | None) -> list[str]:
+    if not path:
+        return []
+    file = Path(path)
+    if not file.exists():
+        raise FileNotFoundError(f"pipeline names file not found: {path}")
+    payload = json.loads(file.read_text(encoding="utf-8"))
+    names = payload.get("pipelines", []) if isinstance(payload, dict) else []
+    return [str(n) for n in names if str(n).strip()]
 
 
 def _pipeline_health(
@@ -81,11 +94,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--name-prefix", default="p_")
     parser.add_argument("--heartbeat-interval-sec", type=int, default=900)
+    parser.add_argument("--pipeline-names-file", default="")
     args = parser.parse_args()
 
     w = WorkspaceClient()
+    configured_names = set(_load_pipeline_names(args.pipeline_names_file))
     pipelines = _list_generated_pipelines(w, args.name_prefix)
-    print(f"Found {len(pipelines)} generated pipeline(s) with prefix '{args.name_prefix}'")
+    if configured_names:
+        pipelines = [p for p in pipelines if str(p.get("name", "")) in configured_names]
+        print(
+            f"Found {len(pipelines)} generated pipeline(s) from configured list "
+            f"({len(configured_names)} names)"
+        )
+    else:
+        print(f"Found {len(pipelines)} generated pipeline(s) with prefix '{args.name_prefix}'")
 
     unhealthy: list[str] = []
     for p in pipelines:

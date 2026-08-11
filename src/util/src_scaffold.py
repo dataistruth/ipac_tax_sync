@@ -10,6 +10,7 @@ from util.paths import (
     client_sql_dir,
     client_transform_dir,
     generated_bundle_dir,
+    generated_config_dir,
     generated_schema_dir,
     src_common_dir,
     src_dir,
@@ -93,6 +94,12 @@ def remove_generated_pipeline_artifacts() -> list[str]:
     schema_dir = generated_schema_dir()
     if schema_dir.exists():
         for path in schema_dir.glob("*.yml"):
+            path.unlink()
+            removed.append(str(path))
+
+    config_dir = generated_config_dir()
+    if config_dir.exists():
+        for path in config_dir.glob("*.json"):
             path.unlink()
             removed.append(str(path))
 

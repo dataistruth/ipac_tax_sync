@@ -35,6 +35,8 @@ config/common/
 **Destination schema suffix** is optional — set `variables.dest_schema_suffix` in `databricks.yml` (empty means schema is exactly `client_nm`).
 **Pipeline heartbeat** threshold is configured in `variables.heartbeat_interval_sec`.
 **Metadata schema** for operational tables is `variables.ipac_metadata_schema`.
+**Access grant group** is configured in `variables.grant_group` and applied as `CAN_MANAGE` on generated pipelines/jobs.
+**Heartbeat alert email** is configured in `variables.heartbeat_job_alert_mail`.
 
 **Tables per pipeline** — `variables.num_of_tables_in_pipeline` (default `5`). A client with 10 tables generates `p_client_a_1` and `p_client_a_2` (5 tables each); 12 tables → three pipelines with 5, 5, and 2 tables.
 
@@ -95,6 +97,7 @@ uv run python -m util.cli validate
 - `generated/bundle/<client_nm>_pipeline.yml` — all `p_<client_nm>_<n>` pipelines for bundle deploy
 - `generated/schema/<client_nm>_schema.yml` — schema resource per client destination schema
 - `generated/schema/ipac_metadata_schema.yml` — metadata schema resource
+- `generated/config/pipeline_names.json` — list of generated pipeline names for heartbeat/restart jobs
 - `src/<client_nm>/pipelines/p_<client_nm>_<n>.yml` — one file per pipeline batch
 
 Deploy (example — client_a with 10 tables, batch size 5):

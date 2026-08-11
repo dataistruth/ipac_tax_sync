@@ -8,6 +8,8 @@ continuous pipelines whose latest update is in a failed state.
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
@@ -20,6 +22,17 @@ def _list_generated_pipelines(w: WorkspaceClient, name_prefix: str) -> list[dict
     payload = w.api_client.do("GET", "/api/2.0/pipelines")
     statuses = payload.get("statuses", []) if isinstance(payload, dict) else []
     return [p for p in statuses if str(p.get("name", "")).startswith(name_prefix)]
+
+
+def _load_pipeline_names(path: str | None) -> list[str]:
+    if not path:
+        return []
+    file = Path(path)
+    if not file.exists():
+        raise FileNotFoundError(f"pipeline names file not found: {path}")
+    payload = json.loads(file.read_text(encoding="utf-8"))
+    names = payload.get("pipelines", []) if isinstance(payload, dict) else []
+    return [str(n) for n in names if str(n).strip()]
 
 
 def _is_failed_continuous(detail: dict[str, Any]) -> tuple[bool, str]:
@@ -37,10 +50,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--name-prefix", default="p_")
     parser.add_argument("--restart-limit", type=int, default=25)
+    parser.add_argument("--pipeline-names-file", default="")
     args = parser.parse_args()
 
     w = WorkspaceClient()
+    configured_names = set(_load_pipeline_names(args.pipeline_names_file))
     pipelines = _list_generated_pipelines(w, args.name_prefix)
+    if configured_names:
+        pipelines = [p for p in pipelines if str(p.get("name", "")) in configured_names]
     restarted = 0
 
     for p in pipelines:

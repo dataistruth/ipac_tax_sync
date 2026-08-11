@@ -12,6 +12,7 @@ from util.pipeline_generator import (
     generate_client_pipelines_yaml,
     generate_lakeflow_pipeline_yaml,
 )
+from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.schema_generator import generate_schema_resource_yaml
 from util.sql_generator import generate_enable_ct_sql
@@ -136,3 +137,12 @@ def test_schema_resource_yaml_format():
     assert "schemas:" in text
     assert "name: iPC_2025_Dev7_15350_raw" in text
     assert "catalog_name: ${var.uc_catalog}" in text
+
+
+def test_pipeline_registry_written(tmp_path):
+    out = write_pipeline_name_registry(tmp_path, ["p_a_2", "p_a_1", "p_a_1"])
+    content = (tmp_path / "pipeline_names.json").read_text(encoding="utf-8")
+    assert out.endswith("pipeline_names.json")
+    assert '"pipelines": [' in content
+    assert '"p_a_1"' in content
+    assert '"p_a_2"' in content

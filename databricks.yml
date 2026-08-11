@@ -31,9 +31,15 @@ variables:
   ipac_metadata_schema:
     default: ipac_metadata
     description: Metadata schema for process logs and heartbeat status tables
+  grant_group:
+    default: ipacs_dev_team
+    description: Databricks group granted manage/view access on generated pipelines and jobs
   heartbeat_interval_sec:
     default: 900
     description: Max allowed heartbeat age (seconds) for continuous generated pipelines
+  heartbeat_job_alert_mail:
+    default: mukessingh@deloitte.com
+    description: Email recipient for heartbeat monitor/restart job failures
   num_of_tables_in_pipeline:
     default: 105
     description: Max tables per generated Lakeflow pipeline (split into p_<client_nm>_1, _2, ...)
@@ -47,7 +53,9 @@ targets:
       dest_schema_suffix: ""
       ct_grantee: ""
       ipac_metadata_schema: ipac_metadata
+      grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
+      heartbeat_job_alert_mail: mukessingh@deloitte.com
 
 
   prod:
@@ -59,5 +67,7 @@ targets:
       dest_schema_suffix: ""
       ct_grantee: ""
       ipac_metadata_schema: ipac_metadata
+      grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
+      heartbeat_job_alert_mail: mukessingh@deloitte.com
 

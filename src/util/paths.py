@@ -59,3 +59,7 @@ def generated_bundle_dir() -> Path:
 
 def generated_schema_dir() -> Path:
     return project_root() / "generated" / "schema"
+
+
+def generated_config_dir() -> Path:
+    return project_root() / "generated" / "config"

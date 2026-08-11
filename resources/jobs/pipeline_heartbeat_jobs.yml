@@ -4,9 +4,12 @@ resources:
       name: ipac_delta_sync_pipeline_heartbeat_monitor
       max_concurrent_runs: 1
       timeout_seconds: 0
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.grant_group}
       email_notifications:
         on_failure:
-          - usa-mukessingh@deloitte.com
+          - ${var.heartbeat_job_alert_mail}
       schedule:
         quartz_cron_expression: "0 */10 * * * ?"
         timezone_id: "UTC"
@@ -20,6 +23,8 @@ resources:
               - p_
               - --heartbeat-interval-sec
               - ${var.heartbeat_interval_sec}
+              - --pipeline-names-file
+              - ${workspace.file_path}/generated/config/pipeline_names.json
           environment_key: monitor_env
       environments:
         - environment_key: monitor_env
@@ -32,9 +37,12 @@ resources:
       name: ipac_delta_sync_pipeline_failed_restart
       max_concurrent_runs: 1
       timeout_seconds: 0
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.grant_group}
       email_notifications:
         on_failure:
-          - usa-mukessingh@deloitte.com
+          - ${var.heartbeat_job_alert_mail}
       tasks:
         - task_key: restart_failed_continuous_pipelines
           spark_python_task:
@@ -44,6 +52,8 @@ resources:
               - p_
               - --restart-limit
               - "25"
+              - --pipeline-names-file
+              - ${workspace.file_path}/generated/config/pipeline_names.json
           environment_key: monitor_env
       environments:
         - environment_key: monitor_env

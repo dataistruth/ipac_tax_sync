@@ -27,12 +27,19 @@ from util.config_loader import (
     load_client_registry,
     validate_all,
 )
-from util.paths import client_pipelines_dir, client_sql_dir, generated_bundle_dir, generated_schema_dir
+from util.paths import (
+    client_pipelines_dir,
+    client_sql_dir,
+    generated_bundle_dir,
+    generated_config_dir,
+    generated_schema_dir,
+)
 from util.pipeline_generator import (
     generate_client_pipelines_yaml,
     write_bundle_pipeline_yaml,
     write_client_pipeline_yamls,
 )
+from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.schema_generator import (
     write_client_schema_resource_yaml,
@@ -156,6 +163,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         target=getattr(args, "target", None),
     )
     schema_dir = generated_schema_dir()
+    config_dir = generated_config_dir()
+    generated_pipeline_names: list[str] = []
     errors = 0
 
     for client in clients:
@@ -216,6 +225,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             )
             for path in client_paths:
                 print(f"Generated {path}")
+                generated_pipeline_names.append(path.rsplit("/", 1)[-1].replace(".yml", ""))
             print(f"Generated {sql_path}")
             print(f"Generated {schema_path}")
         except (ValidationError, ValueError, FileNotFoundError) as exc:
@@ -228,7 +238,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             output_dir=schema_dir,
             uc_catalog_ref=uc_catalog_ref,
         )
+        registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
         print(f"Generated {metadata_schema_path}")
+        print(f"Generated {registry_path}")
 
     return 1 if errors else 0
 
