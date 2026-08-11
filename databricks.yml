@@ -1,0 +1,41 @@
+# =============================================================================
+# ipac_delta_sync — JSON-config-driven Lakeflow Connect scaffolding
+#
+# Workflow:
+#   1. Edit config/common/client.json, common_tables.json, client_overrides/
+#   2. Set uc_catalog below (common for all clients / targets)
+#   3. ./ipac-delta-sync validate
+#   4. ./ipac-delta-sync generate
+#   5. databricks bundle deploy --select pipelines.p_<client_nm>_1,pipelines.p_<client_nm>_2,...
+#
+# Calc jobs deploy from ipac-sdt-calc (jobs.*) — see docs/migration-from-ipac-core-sdt.md
+# =============================================================================
+bundle:
+  name: ipac-delta-sync
+
+include:
+  - generated/bundle/*.yml
+
+variables:
+  uc_catalog:
+    default: ipac_tax_synch
+    description: Common UC catalog for all clients (schemas are {client_nm}_raw)
+  num_of_tables_in_pipeline:
+    default: 5
+    description: Max tables per generated Lakeflow pipeline (split into p_<client_nm>_1, _2, ...)
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      uc_catalog: ipac_tax_synch
+      num_of_tables_in_pipeline: 5
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/ipac_delta_sync/prod
+    variables:
+      uc_catalog: ipac_tax_synch
+      num_of_tables_in_pipeline: 5

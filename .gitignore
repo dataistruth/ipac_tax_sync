@@ -1,0 +1,10 @@
+.venv/
+dist/
+*.egg-info/
+.databricks/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+generated/
+*.pyc
+.DS_Store

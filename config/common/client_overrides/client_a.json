@@ -1,0 +1,8 @@
+{
+  "client_nm": "client_a",
+  "ignore": [
+    { "table_nm": "fact_gl_line_detail", "is_active": false },
+    { "table_nm": "fact_k1_allocation_detail", "is_active": false }
+  ],
+  "extra": []
+}

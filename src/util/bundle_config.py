@@ -1,0 +1,95 @@
+"""Read shared bundle settings from databricks.yml."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+from util.paths import project_root
+
+UC_CATALOG_VAR_REF = "${var.uc_catalog}"
+
+
+def databricks_yml_path() -> Path:
+    return project_root() / "databricks.yml"
+
+
+def load_databricks_bundle_config(path: Path | None = None) -> dict:
+    file_path = path or databricks_yml_path()
+    if not file_path.exists():
+        raise FileNotFoundError(f"databricks.yml not found: {file_path}")
+    with file_path.open(encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def _resolve_variable(
+    name: str,
+    default: str | int,
+    override: str | int | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str | int:
+    if override is not None and str(override).strip():
+        return override
+
+    config = load_databricks_bundle_config(databricks_yml)
+    variables = config.get("variables") or {}
+    raw = variables.get(name)
+
+    if isinstance(raw, dict):
+        if target:
+            targets = config.get("targets") or {}
+            target_cfg = targets.get(target) or {}
+            target_vars = target_cfg.get("variables") or {}
+            if target_vars.get(name) is not None:
+                return target_vars[name]
+        if raw.get("default") is not None:
+            return raw["default"]
+
+    if raw is not None:
+        return raw
+
+    return default
+
+
+def resolve_uc_catalog(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    """Resolve literal UC catalog from CLI override, target, or variable default."""
+    value = _resolve_variable(
+        "uc_catalog",
+        "main",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        return value.strip()
+    return str(value)
+
+
+def resolve_num_of_tables_in_pipeline(
+    override: int | str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> int:
+    """Max tables per generated pipeline (from databricks.yml var.num_of_tables_in_pipeline)."""
+    value = _resolve_variable(
+        "num_of_tables_in_pipeline",
+        5,
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    batch_size = int(value)
+    if batch_size <= 0:
+        raise ValueError("num_of_tables_in_pipeline must be a positive integer")
+    return batch_size
+
+
+def uc_catalog_var_ref() -> str:
+    """Bundle variable reference used in generated pipeline YAML."""
+    return UC_CATALOG_VAR_REF

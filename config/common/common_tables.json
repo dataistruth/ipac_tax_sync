@@ -1,0 +1,88 @@
+{
+  "tables": [
+  {
+    "table_nm": "partners",
+    "lq_key": "partner_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "business_entities",
+    "lq_key": "entity_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "partner_entity_ownership",
+    "lq_key": "entity_id,partner_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "tax_filing_periods",
+    "lq_key": "filing_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "gl_transactions",
+    "lq_key": "entity_id,period_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "k1_distributions",
+    "lq_key": "entity_id,tax_year",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "tax_adjustments",
+    "lq_key": "entity_id,period_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 2
+  },
+  {
+    "table_nm": "estimated_tax_payments",
+    "lq_key": "entity_id,period_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "document_tracker",
+    "lq_key": "",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "billing_engagements",
+    "lq_key": "entity_id,period_id",
+    "is_active": true,
+    "select_cols": "",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "fact_gl_line_detail",
+    "lq_key": "entity_id,period_id",
+    "is_active": false,
+    "select_cols": "gl_line_id,transaction_id,entity_id,partner_id,account_code,amount,line_description,posting_date",
+    "scd_type": 1
+  },
+  {
+    "table_nm": "fact_k1_allocation_detail",
+    "lq_key": "entity_id,tax_year",
+    "is_active": false,
+    "select_cols": "k1_alloc_id,entity_id,partner_id,tax_year,allocation_type,allocated_amount,effective_date",
+    "scd_type": 2
+  }
+  ]
+}

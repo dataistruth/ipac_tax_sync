@@ -1,0 +1,280 @@
+"""Generate continuous Lakeflow Connect pipeline YAML from resolved configs."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from util.bundle_config import UC_CATALOG_VAR_REF
+
+if TYPE_CHECKING:
+    from util.models import ClientEntry, ClusterConfig, ClusterTier, EffectiveTable
+
+
+def pipeline_resource_key(client_nm: str, serial: int) -> str:
+    """Bundle pipeline key/name: p_<client_nm>_<serial>."""
+    return f"p_{client_nm}_{serial}"
+
+
+def chunk_tables(tables: list[EffectiveTable], batch_size: int) -> list[list[EffectiveTable]]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    return [tables[i : i + batch_size] for i in range(0, len(tables), batch_size)]
+
+
+def _parse_lq_key(raw: str | None) -> list[str]:
+    if not raw or not str(raw).strip():
+        return []
+    return [c.strip() for c in str(raw).split(",") if c.strip()]
+
+
+def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None) -> ClusterTier | None:
+    if not cluster_config:
+        return None
+    return cluster_config.tiers.get(str(client.cluster_tier))
+
+
+def _format_object_lines(
+    table: EffectiveTable,
+    client: ClientEntry,
+    uc_catalog_ref: str,
+) -> list[str]:
+    raw_schema = client.raw_schema()
+    lines = [
+        "          - table:",
+        f"              source_catalog: '{client.src_db_nm}'",
+        f"              source_schema: '{table.src_schema}'",
+        f"              source_table: '{table.table_nm}'",
+        f"              destination_catalog: {uc_catalog_ref}",
+        f"              destination_schema: '{raw_schema}'",
+        f"              destination_table: '{table.table_nm}'",
+    ]
+
+    clustering = _parse_lq_key(table.lq_key) if table.has_cluster_by else []
+    needs_table_config = clustering or table.scd_type == 2
+    if needs_table_config:
+        lines.append("              table_configuration:")
+        if clustering:
+            cols = ", ".join(clustering)
+            lines.append(f"                clustering_columns: [{cols}]")
+        if table.scd_type == 2:
+            lines.append("                scd_type: 2")
+    return lines
+
+
+def _pipeline_resource_lines(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    serial: int,
+    cluster_config: ClusterConfig | None,
+    uc_catalog_ref: str,
+) -> list[str]:
+    if not tables:
+        raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
+
+    tier = _tier_for_client(client, cluster_config)
+    pipeline_key = pipeline_resource_key(client.client_nm, serial)
+    raw_schema = client.raw_schema()
+    volume_name = client.resolved_volume_name()
+
+    lines = [
+        f"    {pipeline_key}:",
+        f"      name: {pipeline_key}",
+        "      pipeline_type: MANAGED_INGESTION",
+        "      channel: PREVIEW",
+        f"      serverless: {str(tier.serverless if tier else True).lower()}",
+        "      continuous: true",
+        f"      catalog: {uc_catalog_ref}",
+        f"      schema: {raw_schema}",
+        "      ingestion_definition:",
+        f"        connection_name: {client.uc_conn_nm}",
+        "        connector_type: CDC",
+        "        table_configuration:",
+        "          enable_auto_clustering: true",
+        "        data_staging_options:",
+        f"          catalog_name: {uc_catalog_ref}",
+        f"          schema_name: {raw_schema}",
+    ]
+
+    if volume_name:
+        lines.append(f"          volume_name: {volume_name}")
+
+    lines.append("        objects:")
+
+    for table in tables:
+        lines.extend(_format_object_lines(table, client, uc_catalog_ref))
+
+    return lines
+
+
+def generate_client_pipelines_yaml(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    cluster_config: ClusterConfig | None = None,
+    uc_catalog_ref: str = UC_CATALOG_VAR_REF,
+    resolved_uc_catalog: str | None = None,
+    num_of_tables_in_pipeline: int = 5,
+) -> str:
+    """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
+    if not tables:
+        raise ValueError(f"No tables to generate for {client.client_nm}")
+
+    batches = chunk_tables(tables, num_of_tables_in_pipeline)
+    raw_schema = client.raw_schema()
+    volume_name = client.resolved_volume_name()
+    catalog_comment = resolved_uc_catalog or uc_catalog_ref
+    tier = _tier_for_client(client, cluster_config)
+
+    tier_note = ""
+    if tier:
+        tier_note = (
+            f"# cluster_tier: {client.cluster_tier} ({tier.label}) — "
+            f"{tier.description} (workers {tier.min_workers}-{tier.max_workers})"
+        )
+
+    volume_note = (
+        f"# staging: {catalog_comment}.{raw_schema}"
+        + (f" volume={volume_name}" if volume_name else " (volume auto-created in raw schema)")
+    )
+
+    batch_summary = ", ".join(str(len(b)) for b in batches)
+    lines = [
+        f"# Generated by ipac_delta_sync for client: {client.client_nm}",
+        f"# {client.desc}",
+        f"# uc_catalog: {catalog_comment} (from databricks.yml var.uc_catalog)",
+        f"# num_of_tables_in_pipeline: {num_of_tables_in_pipeline} "
+        f"(databricks.yml var.num_of_tables_in_pipeline)",
+        tier_note,
+        volume_note,
+        f"# raw + staging schema: {catalog_comment}.{raw_schema}",
+        f"# tables: {len(tables)} across {len(batches)} pipeline(s) [{batch_summary}]",
+        f"# Regenerate: ipac-delta-sync generate --client {client.client_nm}",
+        "resources:",
+        "  pipelines:",
+    ]
+
+    for serial, batch in enumerate(batches, start=1):
+        lines.extend(_pipeline_resource_lines(client, batch, serial, cluster_config, uc_catalog_ref))
+
+    return "\n".join([line for line in lines if line]) + "\n"
+
+
+def generate_lakeflow_pipeline_yaml(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    cluster_config: ClusterConfig | None = None,
+    uc_catalog_ref: str = UC_CATALOG_VAR_REF,
+    resolved_uc_catalog: str | None = None,
+    num_of_tables_in_pipeline: int = 5,
+) -> str:
+    """Alias for generate_client_pipelines_yaml."""
+    return generate_client_pipelines_yaml(
+        client,
+        tables,
+        cluster_config,
+        uc_catalog_ref=uc_catalog_ref,
+        resolved_uc_catalog=resolved_uc_catalog,
+        num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+    )
+
+
+def write_pipeline_yaml(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    output_path,
+    cluster_config: ClusterConfig | None = None,
+    uc_catalog_ref: str = UC_CATALOG_VAR_REF,
+    resolved_uc_catalog: str | None = None,
+    num_of_tables_in_pipeline: int = 5,
+    serial: int | None = None,
+) -> str:
+    """Write one pipeline batch to a file (serial required when writing a single batch)."""
+    from pathlib import Path
+
+    batches = chunk_tables(tables, num_of_tables_in_pipeline)
+    if serial is not None:
+        if serial < 1 or serial > len(batches):
+            raise ValueError(f"serial {serial} out of range for {len(batches)} pipeline(s)")
+        batch = batches[serial - 1]
+        pipeline_key = pipeline_resource_key(client.client_nm, serial)
+        header = [
+            f"# Generated by ipac_delta_sync — pipeline {pipeline_key}",
+            f"# tables in this pipeline: {len(batch)}",
+            "resources:",
+            "  pipelines:",
+        ]
+        body = _pipeline_resource_lines(
+            client, batch, serial, cluster_config, uc_catalog_ref
+        )
+        content = "\n".join(header + body) + "\n"
+    else:
+        content = generate_client_pipelines_yaml(
+            client,
+            tables,
+            cluster_config,
+            uc_catalog_ref=uc_catalog_ref,
+            resolved_uc_catalog=resolved_uc_catalog,
+            num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+        )
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return str(path)
+
+
+def write_bundle_pipeline_yaml(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    output_dir,
+    cluster_config: ClusterConfig | None = None,
+    uc_catalog_ref: str = UC_CATALOG_VAR_REF,
+    resolved_uc_catalog: str | None = None,
+    num_of_tables_in_pipeline: int = 5,
+) -> str:
+    from pathlib import Path
+
+    out_file = Path(output_dir) / f"{client.client_nm}_pipeline.yml"
+    return write_pipeline_yaml(
+        client,
+        tables,
+        out_file,
+        cluster_config,
+        uc_catalog_ref=uc_catalog_ref,
+        resolved_uc_catalog=resolved_uc_catalog,
+        num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+    )
+
+
+def write_client_pipeline_yamls(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    pipelines_dir,
+    cluster_config: ClusterConfig | None = None,
+    uc_catalog_ref: str = UC_CATALOG_VAR_REF,
+    resolved_uc_catalog: str | None = None,
+    num_of_tables_in_pipeline: int = 5,
+) -> list[str]:
+    """Write p_<client_nm>_<n>.yml per pipeline batch under src/<client>/pipelines/."""
+    from pathlib import Path
+
+    batches = chunk_tables(tables, num_of_tables_in_pipeline)
+    out_dir = Path(pipelines_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[str] = []
+
+    for serial in range(1, len(batches) + 1):
+        out_file = out_dir / f"p_{client.client_nm}_{serial}.yml"
+        paths.append(
+            write_pipeline_yaml(
+                client,
+                tables,
+                out_file,
+                cluster_config,
+                uc_catalog_ref=uc_catalog_ref,
+                resolved_uc_catalog=resolved_uc_catalog,
+                num_of_tables_in_pipeline=num_of_tables_in_pipeline,
+                serial=serial,
+            )
+        )
+
+    return paths

@@ -1,0 +1,35 @@
+[
+  {
+    "client_nm": "client_a",
+    "desc": "Client A tax sync POC",
+    "volume": "",
+    "priority": 100,
+    "is_active": true,
+    "src_db_nm": "free-sql-db-0862313",
+    "src_db_schema": "dbo",
+    "uc_conn_nm": "sql_server_lakeflow_connect",
+    "cluster_tier": 3
+  },
+  {
+    "client_nm": "client_b",
+    "desc": "Client B Dev7 POC — additional tables only",
+    "volume": "",
+    "priority": 50,
+    "is_active": true,
+    "src_db_nm": "iPC_2025_Dev7_15347",
+    "src_db_schema": "dbo",
+    "uc_conn_nm": "dev7_15347",
+    "cluster_tier": 4
+  },
+  {
+    "client_nm": "client_inactive",
+    "desc": "Inactive example — no pipeline generated",
+    "volume": "",
+    "priority": 999,
+    "is_active": false,
+    "src_db_nm": "unused_db",
+    "src_db_schema": "dbo",
+    "uc_conn_nm": "unused_conn",
+    "cluster_tier": 1
+  }
+]

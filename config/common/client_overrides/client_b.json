@@ -1,0 +1,14 @@
+{
+  "client_nm": "client_b",
+  "include_common": false,
+  "ignore": [],
+  "extra": [
+    {
+      "table_nm": "CYAdjustmentInput",
+      "lq_key": "adjustment_id",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1
+    }
+  ]
+}
