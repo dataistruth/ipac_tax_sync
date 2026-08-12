@@ -13,6 +13,11 @@
 bundle:
   name: ipac-delta-sync
 
+sync:
+  include:
+    - src/common/ops/**
+    - generated/config/**
+
 include:
   - generated/bundle/*.yml
   - generated/schema/*.yml

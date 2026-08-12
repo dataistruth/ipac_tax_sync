@@ -13,12 +13,30 @@ notifications can deliver email alerts.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import time
 from pathlib import Path
 from typing import Any
 
-from databricks_rest import DatabricksRestClient
+
+def _load_databricks_rest_client():
+    """Load sibling module; spark_python_task does not add script dir to sys.path."""
+    module_path = Path(__file__).resolve().with_name("databricks_rest.py")
+    if not module_path.is_file():
+        raise FileNotFoundError(
+            f"Required module not deployed: {module_path}. "
+            "Redeploy the bundle so src/common/ops/databricks_rest.py is synced."
+        )
+    spec = importlib.util.spec_from_file_location("databricks_rest", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module spec from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.DatabricksRestClient
+
+
+DatabricksRestClient = _load_databricks_rest_client()
 
 
 FAILED_STATES = {"FAILED", "CANCELED", "CANCELLED"}
