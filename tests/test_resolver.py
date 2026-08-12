@@ -15,7 +15,7 @@ from util.pipeline_generator import (
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.schema_generator import generate_schema_resource_yaml
-from util.sql_generator import generate_enable_ct_sql
+from util.sql_generator import generate_ct_grants_sql, generate_enable_ct_sql
 
 UC_REF = uc_catalog_var_ref()
 
@@ -146,3 +146,14 @@ def test_pipeline_registry_written(tmp_path):
     assert '"pipelines": [' in content
     assert '"p_a_1"' in content
     assert '"p_a_2"' in content
+
+
+def test_ct_grants_sql_has_placeholder_principal():
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15350")
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    sql_text = generate_ct_grants_sql(client, tables[:1], principal_placeholder="<KEEP_USER_ID>")
+
+    assert "DECLARE @principal SYSNAME = N'<KEEP_USER_ID>';" in sql_text
+    assert "GRANT VIEW DATABASE STATE TO [" in sql_text
+    assert "GRANT SELECT, VIEW CHANGE TRACKING ON [dbo].[" in sql_text

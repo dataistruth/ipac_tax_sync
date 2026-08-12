@@ -45,7 +45,7 @@ from util.schema_generator import (
     write_client_schema_resource_yaml,
     write_metadata_schema_resource_yaml,
 )
-from util.sql_generator import write_enable_ct_sql
+from util.sql_generator import write_ct_grants_sql, write_enable_ct_sql
 from util.src_scaffold import (
     remove_generated_pipeline_artifacts,
     remove_stale_client_dirs,
@@ -213,6 +213,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 client_sql_dir(client.client_nm),
                 ct_grantee=ct_grantee,
             )
+            grant_sql_path = write_ct_grants_sql(
+                client,
+                tables,
+                client_sql_dir(client.client_nm),
+                principal_placeholder="<KEEP_USER_ID>",
+            )
             schema_path = write_client_schema_resource_yaml(
                 client,
                 dest_schema_suffix=dest_schema_suffix,
@@ -227,6 +233,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 print(f"Generated {path}")
                 generated_pipeline_names.append(path.rsplit("/", 1)[-1].replace(".yml", ""))
             print(f"Generated {sql_path}")
+            print(f"Generated {grant_sql_path}")
             print(f"Generated {schema_path}")
         except (ValidationError, ValueError, FileNotFoundError) as exc:
             errors += 1
