@@ -31,9 +31,6 @@ variables:
   dest_schema_suffix:
     default: "poc_1"
     description: Optional suffix appended to client_nm for destination schema ({client_nm}{suffix})
-  ct_grantee:
-    default: ""
-    description: Optional SQL principal for CT grants in generated <client_nm>_enable_ct.sql
   ipac_metadata_schema:
     default: ipac_metadata
     description: Metadata schema for process logs and heartbeat status tables
@@ -57,7 +54,6 @@ targets:
     variables:
       uc_catalog: ipac_tax_synch
       dest_schema_suffix: ""
-      ct_grantee: ""
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
@@ -71,7 +67,6 @@ targets:
     variables:
       uc_catalog: ipac_tax_synch
       dest_schema_suffix: ""
-      ct_grantee: ""
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900

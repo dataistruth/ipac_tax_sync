@@ -99,8 +99,9 @@ uv run python -m util.cli validate
 - `generated/schema/ipac_metadata_schema.yml` — metadata schema resource
 - `generated/config/pipeline_names.json` — list of generated pipeline names for heartbeat/restart jobs
 - `src/<client_nm>/pipelines/p_<client_nm>_<n>.yml` — one file per pipeline batch
-- `src/<client_nm>/sql/<client_nm>_enable_ct.sql` — enables CT (and optional grants when `ct_grantee` is set)
-- `src/<client_nm>/sql/<client_nm>_grant_ct_access.sql` — grant-only script with top placeholder `@principal` (`<KEEP_USER_ID>`)
+- `src/<client_nm>/sql/<client_nm>_enable_ct_or_cdc.sql` — enable CT (PK tables) or CDC (non-PK tables)
+- `src/<client_nm>/sql/<client_nm>_grant_ct_access.sql` — CT grants for PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
+- `src/<client_nm>/sql/<client_nm>_grant_cdc_access.sql` — CDC grants for non-PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
 
 Deploy (example — client_a with 10 tables, batch size 5):
 

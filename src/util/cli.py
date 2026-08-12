@@ -9,7 +9,6 @@ import sys
 from pydantic import ValidationError
 
 from util.bundle_config import (
-    resolve_ct_grantee,
     resolve_dest_schema_suffix,
     resolve_ipac_metadata_schema,
     resolve_num_of_tables_in_pipeline,
@@ -45,7 +44,7 @@ from util.schema_generator import (
     write_client_schema_resource_yaml,
     write_metadata_schema_resource_yaml,
 )
-from util.sql_generator import write_ct_grants_sql, write_enable_ct_sql
+from util.sql_generator import write_source_replication_sql
 from util.src_scaffold import (
     remove_generated_pipeline_artifacts,
     remove_stale_client_dirs,
@@ -154,10 +153,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         override=getattr(args, "dest_schema_suffix", None),
         target=getattr(args, "target", None),
     )
-    ct_grantee = resolve_ct_grantee(
-        override=getattr(args, "ct_grantee", None),
-        target=getattr(args, "target", None),
-    )
     metadata_schema = resolve_ipac_metadata_schema(
         override=getattr(args, "ipac_metadata_schema", None),
         target=getattr(args, "target", None),
@@ -207,13 +202,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 num_of_tables_in_pipeline=num_tables,
                 dest_schema_suffix=dest_schema_suffix,
             )
-            sql_path = write_enable_ct_sql(
-                client,
-                tables,
-                client_sql_dir(client.client_nm),
-                ct_grantee=ct_grantee,
-            )
-            grant_sql_path = write_ct_grants_sql(
+            enable_path, ct_grant_path, cdc_grant_path = write_source_replication_sql(
                 client,
                 tables,
                 client_sql_dir(client.client_nm),
@@ -232,8 +221,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             for path in client_paths:
                 print(f"Generated {path}")
                 generated_pipeline_names.append(path.rsplit("/", 1)[-1].replace(".yml", ""))
-            print(f"Generated {sql_path}")
-            print(f"Generated {grant_sql_path}")
+            print(f"Generated {enable_path}")
+            print(f"Generated {ct_grant_path}")
+            print(f"Generated {cdc_grant_path}")
             print(f"Generated {schema_path}")
         except (ValidationError, ValueError, FileNotFoundError) as exc:
             errors += 1
@@ -297,10 +287,6 @@ def build_parser() -> argparse.ArgumentParser:
     generate_p.add_argument(
         "--dest-schema-suffix",
         help="Override destination schema suffix (default from databricks.yml var.dest_schema_suffix)",
-    )
-    generate_p.add_argument(
-        "--ct-grantee",
-        help="Optional SQL principal to grant SELECT/VIEW CHANGE TRACKING and VIEW DATABASE STATE",
     )
     generate_p.add_argument(
         "--ipac-metadata-schema",

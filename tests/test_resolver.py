@@ -15,7 +15,12 @@ from util.pipeline_generator import (
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.schema_generator import generate_schema_resource_yaml
-from util.sql_generator import generate_ct_grants_sql, generate_enable_ct_sql
+from util.sql_generator import (
+    generate_cdc_grants_sql,
+    generate_ct_grants_sql,
+    generate_enable_ct_or_cdc_sql,
+    write_source_replication_sql,
+)
 
 UC_REF = uc_catalog_var_ref()
 
@@ -117,14 +122,17 @@ def test_generate_yaml_splits_into_multiple_pipelines():
     assert "p_iPC_2025_Dev7_15350_1:" in yaml_text
 
 
-def test_enable_ct_sql_includes_grants_when_grantee_set():
+def test_enable_ct_or_cdc_sql_single_block_no_grants():
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15350")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
-    sql_text = generate_enable_ct_sql(client, tables[:1], ct_grantee="AppUser_Test")
+    sql_text = generate_enable_ct_or_cdc_sql(client, tables[:1])
 
-    assert "GRANT VIEW DATABASE STATE TO [AppUser_Test];" in sql_text
-    assert "GRANT SELECT, VIEW CHANGE TRACKING ON [dbo].[" in sql_text
+    assert "sp_cdc_enable_table" in sql_text
+    assert "ENABLE CHANGE_TRACKING" in sql_text
+    assert "supports_net_changes = 0" in sql_text
+    assert "EXEC(N'ALTER DATABASE" in sql_text
+    assert "GRANT " not in sql_text
 
 
 def test_schema_resource_yaml_format():
@@ -148,12 +156,39 @@ def test_pipeline_registry_written(tmp_path):
     assert '"p_a_2"' in content
 
 
-def test_ct_grants_sql_has_placeholder_principal():
+def test_ct_grants_sql_dynamic_pk_only():
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15350")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
     sql_text = generate_ct_grants_sql(client, tables[:1], principal_placeholder="<KEEP_USER_ID>")
 
     assert "DECLARE @principal SYSNAME = N'<KEEP_USER_ID>';" in sql_text
-    assert "GRANT VIEW DATABASE STATE TO [" in sql_text
-    assert "GRANT SELECT, VIEW CHANGE TRACKING ON [dbo].[" in sql_text
+    assert "CREATE USER [" in sql_text
+    assert "FOR LOGIN [" in sql_text
+    assert "SKIP (no PK / use CDC grants)" in sql_text
+    assert "VIEW CHANGE TRACKING" in sql_text
+
+
+def test_cdc_grants_sql_non_pk_only():
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15350")
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    sql_text = generate_cdc_grants_sql(client, tables[:1], principal_placeholder="<KEEP_USER_ID>")
+
+    assert "DECLARE @principal SYSNAME = N'<KEEP_USER_ID>';" in sql_text
+    assert "CREATE USER [" in sql_text
+    assert "FOR LOGIN [" in sql_text
+    assert "SKIP (has PK / use CT grants)" in sql_text
+    assert "QUOTENAME(N'cdc')" in sql_text
+    assert "@cdc_change_table = @capture_instance + N'_CT'" in sql_text
+
+
+def test_write_source_replication_sql_writes_three_files(tmp_path):
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15350")
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    paths = write_source_replication_sql(client, tables, tmp_path)
+    assert len(paths) == 3
+    assert paths[0].endswith("_enable_ct_or_cdc.sql")
+    assert paths[1].endswith("_grant_ct_access.sql")
+    assert paths[2].endswith("_grant_cdc_access.sql")

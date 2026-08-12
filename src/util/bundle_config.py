@@ -108,24 +108,6 @@ def resolve_dest_schema_suffix(
     return str(value).strip()
 
 
-def resolve_ct_grantee(
-    override: str | None = None,
-    target: str | None = None,
-    databricks_yml: Path | None = None,
-) -> str:
-    """Resolve optional SQL principal for CT grants (empty disables grant statements)."""
-    value = _resolve_variable(
-        "ct_grantee",
-        "",
-        override=override,
-        target=target,
-        databricks_yml=databricks_yml,
-    )
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
 def resolve_ipac_metadata_schema(
     override: str | None = None,
     target: str | None = None,

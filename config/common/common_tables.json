@@ -197,6 +197,7 @@
     {"table_nm": "Workflow", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
     {"table_nm": "WorkflowChain", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
     {"table_nm": "WorkflowStatus", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
+    {"table_nm": "Yearly_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
     {"table_nm": "YearlyByInvestment", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1}
   ]
 }
