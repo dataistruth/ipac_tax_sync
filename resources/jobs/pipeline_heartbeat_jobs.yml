@@ -25,13 +25,6 @@ resources:
               - ${var.heartbeat_interval_sec}
               - --pipeline-names-file
               - ${workspace.file_path}/generated/config/pipeline_names.json
-          environment_key: monitor_env
-      environments:
-        - environment_key: monitor_env
-          spec:
-            client: "1"
-            dependencies:
-              - databricks-sdk>=0.39.0
 
     pipeline_failed_restart:
       name: ipac_delta_sync_pipeline_failed_restart
@@ -54,10 +47,3 @@ resources:
               - "25"
               - --pipeline-names-file
               - ${workspace.file_path}/generated/config/pipeline_names.json
-          environment_key: monitor_env
-      environments:
-        - environment_key: monitor_env
-          spec:
-            client: "1"
-            dependencies:
-              - databricks-sdk>=0.39.0

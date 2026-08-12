@@ -12,14 +12,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from databricks.sdk import WorkspaceClient
+from databricks_rest import DatabricksRestClient
 
 
 FAILED_STATES = {"FAILED", "CANCELED", "CANCELLED"}
 
 
-def _list_generated_pipelines(w: WorkspaceClient, name_prefix: str) -> list[dict[str, Any]]:
-    payload = w.api_client.do("GET", "/api/2.0/pipelines")
+def _list_generated_pipelines(client: DatabricksRestClient, name_prefix: str) -> list[dict[str, Any]]:
+    payload = client.get("/api/2.0/pipelines")
     statuses = payload.get("statuses", []) if isinstance(payload, dict) else []
     return [p for p in statuses if str(p.get("name", "")).startswith(name_prefix)]
 
@@ -53,9 +53,9 @@ def main() -> int:
     parser.add_argument("--pipeline-names-file", default="")
     args = parser.parse_args()
 
-    w = WorkspaceClient()
+    client = DatabricksRestClient()
     configured_names = set(_load_pipeline_names(args.pipeline_names_file))
-    pipelines = _list_generated_pipelines(w, args.name_prefix)
+    pipelines = _list_generated_pipelines(client, args.name_prefix)
     if configured_names:
         pipelines = [p for p in pipelines if str(p.get("name", "")) in configured_names]
     restarted = 0
@@ -67,12 +67,12 @@ def main() -> int:
         name = p.get("name", pid)
         if not pid:
             continue
-        detail = w.api_client.do("GET", f"/api/2.0/pipelines/{pid}") or {}
+        detail = client.get(f"/api/2.0/pipelines/{pid}") or {}
         should_restart, reason = _is_failed_continuous(detail)
         print(f"{name}: {reason}")
         if not should_restart:
             continue
-        w.api_client.do("POST", f"/api/2.0/pipelines/{pid}/updates", body={})
+        client.post(f"/api/2.0/pipelines/{pid}/updates")
         restarted += 1
         print(f"Restart requested for {name} ({pid})")
 

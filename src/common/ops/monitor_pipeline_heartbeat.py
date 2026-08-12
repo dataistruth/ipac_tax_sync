@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from databricks.sdk import WorkspaceClient
+from databricks_rest import DatabricksRestClient
 
 
 FAILED_STATES = {"FAILED", "CANCELED", "CANCELLED"}
@@ -37,8 +37,8 @@ def _safe_get(d: dict[str, Any], *keys: str):
     return cur
 
 
-def _list_generated_pipelines(w: WorkspaceClient, name_prefix: str) -> list[dict[str, Any]]:
-    payload = w.api_client.do("GET", "/api/2.0/pipelines")
+def _list_generated_pipelines(client: DatabricksRestClient, name_prefix: str) -> list[dict[str, Any]]:
+    payload = client.get("/api/2.0/pipelines")
     statuses = payload.get("statuses", []) if isinstance(payload, dict) else []
     return [p for p in statuses if str(p.get("name", "")).startswith(name_prefix)]
 
@@ -55,9 +55,9 @@ def _load_pipeline_names(path: str | None) -> list[str]:
 
 
 def _pipeline_health(
-    w: WorkspaceClient, pipeline_id: str, heartbeat_interval_sec: int
+    client: DatabricksRestClient, pipeline_id: str, heartbeat_interval_sec: int
 ) -> tuple[bool, str]:
-    detail = w.api_client.do("GET", f"/api/2.0/pipelines/{pipeline_id}") or {}
+    detail = client.get(f"/api/2.0/pipelines/{pipeline_id}") or {}
     spec = detail.get("spec", {})
     continuous = bool(spec.get("continuous", False))
     if not continuous:
@@ -97,9 +97,9 @@ def main() -> int:
     parser.add_argument("--pipeline-names-file", default="")
     args = parser.parse_args()
 
-    w = WorkspaceClient()
+    client = DatabricksRestClient()
     configured_names = set(_load_pipeline_names(args.pipeline_names_file))
-    pipelines = _list_generated_pipelines(w, args.name_prefix)
+    pipelines = _list_generated_pipelines(client, args.name_prefix)
     if configured_names:
         pipelines = [p for p in pipelines if str(p.get("name", "")) in configured_names]
         print(
@@ -115,7 +115,7 @@ def main() -> int:
         name = p.get("name", pid)
         if not pid:
             continue
-        ok, reason = _pipeline_health(w, pid, args.heartbeat_interval_sec)
+        ok, reason = _pipeline_health(client, pid, args.heartbeat_interval_sec)
         print(f"{name}: {reason}")
         if not ok:
             unhealthy.append(f"{name} ({pid}) -> {reason}")

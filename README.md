@@ -117,6 +117,7 @@ Bundle also defines two jobs under `resources/jobs/pipeline_heartbeat_jobs.yml`:
 - `pipeline_failed_restart` — restarts failed continuous generated pipelines.
 
 Monitor uses `variables.heartbeat_interval_sec` to decide staleness.
+Both jobs use stdlib REST calls (`src/common/ops/databricks_rest.py`) — no `databricks-sdk` or other pip dependencies on the job environment.
 
 ## Onboard a new client
 
