@@ -15,6 +15,7 @@ bundle:
 
 sync:
   include:
+    - src/common/notebooks/**
     - src/common/ops/**
     - generated/config/**
 

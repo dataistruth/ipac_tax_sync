@@ -116,8 +116,9 @@ Bundle also defines two jobs under `resources/jobs/pipeline_heartbeat_jobs.yml`:
 - `pipeline_heartbeat_monitor` — checks generated continuous pipelines (`p_*`) heartbeat/state and fails (email alert) when unhealthy.
 - `pipeline_failed_restart` — restarts failed continuous generated pipelines.
 
-Both jobs run on **serverless compute** (`environment_key: serverless_ops`, no pip dependencies).
-Jobs invoke `src/common/ops/pipeline_job_ops.py` (single self-contained script for Databricks `exec()` runtime).
+Both jobs run as **serverless notebook tasks** (no Spark session, no pip dependencies).
+Notebooks: `src/common/notebooks/monitor_pipeline_heartbeat.py` and `restart_failed_pipelines.py`.
+Shared REST logic: `src/common/ops/pipeline_job_ops.py` (stdlib only, auth via `dbutils`).
 Monitor uses `variables.heartbeat_interval_sec` to decide staleness.
 
 ## Onboard a new client

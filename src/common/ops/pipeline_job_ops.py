@@ -17,9 +17,26 @@ from typing import Any
 
 
 FAILED_STATES = {"FAILED", "CANCELED", "CANCELLED"}
+_dbutils: Any | None = None
+
+
+def configure_dbutils(db: Any) -> None:
+    """Inject notebook dbutils (avoids SparkSession in serverless notebooks)."""
+    global _dbutils
+    _dbutils = db
 
 
 def _auth_from_dbutils() -> tuple[str, str]:
+    db = _dbutils
+    if db is not None:
+        try:
+            ctx = db.notebook.entry_point.getDbutils().notebook().getContext()
+            host = str(ctx.apiUrl().get()).rstrip("/")
+            token = str(ctx.apiToken().get())
+            if host and token:
+                return host, token
+        except Exception:
+            pass
     try:
         from pyspark.dbutils import DBUtils
         from pyspark.sql import SparkSession

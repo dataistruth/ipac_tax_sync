@@ -14,23 +14,14 @@ resources:
         quartz_cron_expression: "0 */10 * * * ?"
         timezone_id: "UTC"
         pause_status: "UNPAUSED"
-      environments:
-        - environment_key: serverless_ops
-          spec:
-            client: "4"
       tasks:
         - task_key: monitor_continuous_pipelines
-          environment_key: serverless_ops
-          spark_python_task:
-            python_file: ${workspace.file_path}/src/common/ops/pipeline_job_ops.py
-            parameters:
-              - monitor
-              - --name-prefix
-              - p_
-              - --heartbeat-interval-sec
-              - ${var.heartbeat_interval_sec}
-              - --pipeline-names-file
-              - ${workspace.file_path}/generated/config/pipeline_names.json
+          notebook_task:
+            notebook_path: ${workspace.file_path}/src/common/notebooks/monitor_pipeline_heartbeat.py
+            base_parameters:
+              name_prefix: p_
+              heartbeat_interval_sec: ${var.heartbeat_interval_sec}
+              pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
 
     pipeline_failed_restart:
       name: ipac_delta_sync_pipeline_failed_restart
@@ -42,20 +33,11 @@ resources:
       email_notifications:
         on_failure:
           - ${var.heartbeat_job_alert_mail}
-      environments:
-        - environment_key: serverless_ops
-          spec:
-            client: "4"
       tasks:
         - task_key: restart_failed_continuous_pipelines
-          environment_key: serverless_ops
-          spark_python_task:
-            python_file: ${workspace.file_path}/src/common/ops/pipeline_job_ops.py
-            parameters:
-              - restart
-              - --name-prefix
-              - p_
-              - --restart-limit
-              - "25"
-              - --pipeline-names-file
-              - ${workspace.file_path}/generated/config/pipeline_names.json
+          notebook_task:
+            notebook_path: ${workspace.file_path}/src/common/notebooks/restart_failed_pipelines.py
+            base_parameters:
+              name_prefix: p_
+              restart_limit: "25"
+              pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
