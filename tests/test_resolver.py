@@ -166,7 +166,8 @@ def test_ct_grants_sql_dynamic_pk_only():
     assert "CREATE USER [" in sql_text
     assert "FOR LOGIN [" in sql_text
     assert "SKIP (no PK / use CDC grants)" in sql_text
-    assert "VIEW CHANGE TRACKING" in sql_text
+    assert "GRANT VIEW CHANGE TRACKING TO [" in sql_text
+    assert "GRANT SELECT, VIEW CHANGE TRACKING ON" in sql_text
 
 
 def test_cdc_grants_sql_non_pk_only():
