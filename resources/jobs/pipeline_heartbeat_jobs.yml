@@ -14,8 +14,13 @@ resources:
         quartz_cron_expression: "0 */10 * * * ?"
         timezone_id: "UTC"
         pause_status: "UNPAUSED"
+      environments:
+        - environment_key: serverless_ops
+          spec:
+            client: "4"
       tasks:
         - task_key: monitor_continuous_pipelines
+          environment_key: serverless_ops
           spark_python_task:
             python_file: ${workspace.file_path}/src/common/ops/monitor_pipeline_heartbeat.py
             parameters:
@@ -36,8 +41,13 @@ resources:
       email_notifications:
         on_failure:
           - ${var.heartbeat_job_alert_mail}
+      environments:
+        - environment_key: serverless_ops
+          spec:
+            client: "4"
       tasks:
         - task_key: restart_failed_continuous_pipelines
+          environment_key: serverless_ops
           spark_python_task:
             python_file: ${workspace.file_path}/src/common/ops/restart_failed_pipelines.py
             parameters:
