@@ -7,6 +7,8 @@ resources:
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.grant_group}
+      tags:
+        bundle: ${var.job_tag}
       email_notifications:
         on_failure:
           - ${var.heartbeat_job_alert_mail}
@@ -30,6 +32,8 @@ resources:
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.grant_group}
+      tags:
+        bundle: ${var.job_tag}
       email_notifications:
         on_failure:
           - ${var.heartbeat_job_alert_mail}

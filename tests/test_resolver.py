@@ -1,6 +1,7 @@
 """Tests for ipac_delta_sync config/common model."""
 
 from util.bundle_config import (
+    pipeline_tag_var_ref,
     resolve_dest_schema_suffix,
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
@@ -25,6 +26,7 @@ from util.sql_generator import (
 
 UC_REF = uc_catalog_var_ref()
 LKF_SCHEMA_REF = uc_lkf_staging_schema_var_ref()
+PIPELINE_TAG_REF = pipeline_tag_var_ref()
 
 
 def _active_clients():
@@ -80,6 +82,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     )
 
     assert f"schema: {LKF_SCHEMA_REF}" in yaml_text
+    assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
     assert f"destination_schema: '{dest_schema}'" in yaml_text
     assert dest_schema == "iPC_2025_Dev7_15350poc_1"
     assert "data_staging_options:" not in yaml_text
@@ -99,6 +102,7 @@ def test_generate_yaml_uses_suffix_when_provided():
     )
 
     assert f"schema: {LKF_SCHEMA_REF}" in yaml_text
+    assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
     assert f"destination_schema: '{dest_schema}'" in yaml_text
     assert "data_staging_options:" not in yaml_text
 

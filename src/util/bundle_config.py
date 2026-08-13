@@ -10,6 +10,8 @@ from util.paths import project_root
 
 UC_CATALOG_VAR_REF = "${var.uc_catalog}"
 UC_LKF_STAGING_SCHEMA_VAR_REF = "${var.uc_lkf_staging_schema}"
+PIPELINE_TAG_VAR_REF = "${var.pipeline_tag}"
+JOB_TAG_VAR_REF = "${var.job_tag}"
 
 
 def databricks_yml_path() -> Path:
@@ -157,3 +159,49 @@ def resolve_ipac_metadata_schema(
 def uc_catalog_var_ref() -> str:
     """Bundle variable reference used in generated pipeline YAML."""
     return UC_CATALOG_VAR_REF
+
+
+def resolve_pipeline_tag(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    """Resolve tag value applied to generated Lakeflow pipelines."""
+    value = _resolve_variable(
+        "pipeline_tag",
+        "",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def resolve_job_tag(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    """Resolve tag value applied to bundle jobs."""
+    value = _resolve_variable(
+        "job_tag",
+        "",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def pipeline_tag_var_ref() -> str:
+    """Bundle variable reference for pipeline tags."""
+    return PIPELINE_TAG_VAR_REF
+
+
+def job_tag_var_ref() -> str:
+    """Bundle variable reference for job tags."""
+    return JOB_TAG_VAR_REF

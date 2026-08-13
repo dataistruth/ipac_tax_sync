@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from util.bundle_config import UC_CATALOG_VAR_REF, UC_LKF_STAGING_SCHEMA_VAR_REF
+from util.bundle_config import (
+    JOB_TAG_VAR_REF,
+    PIPELINE_TAG_VAR_REF,
+    UC_CATALOG_VAR_REF,
+    UC_LKF_STAGING_SCHEMA_VAR_REF,
+)
 
 if TYPE_CHECKING:
     from util.models import ClientEntry, ClusterConfig, ClusterTier, EffectiveTable
@@ -72,6 +77,7 @@ def _pipeline_resource_lines(
     cluster_config: ClusterConfig | None,
     uc_catalog_ref: str,
     uc_lkf_staging_schema_ref: str,
+    pipeline_tag_ref: str,
     dest_schema_suffix: str,
 ) -> list[str]:
     if not tables:
@@ -87,6 +93,8 @@ def _pipeline_resource_lines(
         "      permissions:",
         "        - level: CAN_MANAGE",
         "          group_name: ${var.grant_group}",
+        "      tags:",
+        f"        bundle: {pipeline_tag_ref}",
         "      channel: PREVIEW",
         "      serverless: false",
         "      continuous: true",
@@ -116,6 +124,7 @@ def generate_client_pipelines_yaml(
     dest_schema_suffix: str = "",
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
+    pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
 ) -> str:
     """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
     if not tables:
@@ -159,6 +168,7 @@ def generate_client_pipelines_yaml(
                 cluster_config,
                 uc_catalog_ref,
                 uc_lkf_staging_schema_ref,
+                pipeline_tag_ref,
                 dest_schema_suffix,
             )
         )
@@ -176,6 +186,7 @@ def generate_lakeflow_pipeline_yaml(
     dest_schema_suffix: str = "",
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
+    pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
 ) -> str:
     """Alias for generate_client_pipelines_yaml."""
     return generate_client_pipelines_yaml(
@@ -188,6 +199,7 @@ def generate_lakeflow_pipeline_yaml(
         dest_schema_suffix=dest_schema_suffix,
         uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+        pipeline_tag_ref=pipeline_tag_ref,
     )
 
 
@@ -203,6 +215,7 @@ def write_pipeline_yaml(
     dest_schema_suffix: str = "",
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
+    pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
 ) -> str:
     """Write one pipeline batch to a file (serial required when writing a single batch)."""
     from pathlib import Path
@@ -226,6 +239,7 @@ def write_pipeline_yaml(
             cluster_config,
             uc_catalog_ref,
             uc_lkf_staging_schema_ref,
+            pipeline_tag_ref,
             dest_schema_suffix,
         )
         content = "\n".join(header + body) + "\n"
@@ -240,6 +254,7 @@ def write_pipeline_yaml(
             dest_schema_suffix=dest_schema_suffix,
             uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
             resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+            pipeline_tag_ref=pipeline_tag_ref,
         )
 
     path = Path(output_path)
@@ -259,6 +274,7 @@ def write_bundle_pipeline_yaml(
     dest_schema_suffix: str = "",
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
+    pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
 ) -> str:
     from pathlib import Path
 
@@ -274,6 +290,7 @@ def write_bundle_pipeline_yaml(
         dest_schema_suffix=dest_schema_suffix,
         uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+        pipeline_tag_ref=pipeline_tag_ref,
     )
 
 
@@ -288,6 +305,7 @@ def write_client_pipeline_yamls(
     dest_schema_suffix: str = "",
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
+    pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
 ) -> list[str]:
     """Write p_<client_nm>_<n>.yml per pipeline batch under src/<client>/pipelines/."""
     from pathlib import Path
@@ -312,6 +330,7 @@ def write_client_pipeline_yamls(
                 dest_schema_suffix=dest_schema_suffix,
                 uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+                pipeline_tag_ref=pipeline_tag_ref,
             )
         )
 

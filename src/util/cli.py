@@ -14,6 +14,7 @@ from util.bundle_config import (
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
     resolve_uc_lkf_staging_schema,
+    pipeline_tag_var_ref,
     uc_catalog_var_ref,
     uc_lkf_staging_schema_var_ref,
 )
@@ -169,6 +170,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         override=getattr(args, "uc_lkf_staging_schema", None),
         target=getattr(args, "target", None),
     )
+    pipeline_tag_ref = pipeline_tag_var_ref()
     metadata_schema = resolve_ipac_metadata_schema(
         override=getattr(args, "ipac_metadata_schema", None),
         target=getattr(args, "target", None),
@@ -196,6 +198,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         dest_schema_suffix=dest_schema_suffix,
                         uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+                        pipeline_tag_ref=pipeline_tag_ref,
                     )
                 )
                 print()
@@ -213,6 +216,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 dest_schema_suffix=dest_schema_suffix,
                 uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+                pipeline_tag_ref=pipeline_tag_ref,
             )
             _log(f"--- {client.client_nm}: writing per-batch pipeline YAML...")
             client_paths = write_client_pipeline_yamls(
@@ -226,6 +230,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 dest_schema_suffix=dest_schema_suffix,
                 uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
+                pipeline_tag_ref=pipeline_tag_ref,
             )
             _log(f"--- {client.client_nm}: writing SQL scripts...")
             enable_path, ct_grant_path, cdc_grant_path = write_source_replication_sql(
@@ -325,6 +330,10 @@ def build_parser() -> argparse.ArgumentParser:
     generate_p.add_argument(
         "--uc-lkf-staging-schema",
         help="Override pipeline schema literal for YAML comments (bundle uses ${var.uc_lkf_staging_schema})",
+    )
+    generate_p.add_argument(
+        "--pipeline-tag",
+        help="Override pipeline tag literal for YAML comments (bundle uses ${var.pipeline_tag})",
     )
     generate_p.add_argument(
         "--ipac-metadata-schema",

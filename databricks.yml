@@ -49,6 +49,12 @@ variables:
   num_of_tables_in_pipeline:
     default: 105
     description: Max tables per generated Lakeflow pipeline (split into p_<client_nm>_1, _2, ...)
+  pipeline_tag:
+    default: ipac_delta_sync
+    description: Tag value applied to all generated Lakeflow pipelines (tags.bundle)
+  job_tag:
+    default: ipac_delta_sync
+    description: Tag value applied to bundle jobs (tags.bundle)
 
 targets:
   dev:
@@ -61,6 +67,8 @@ targets:
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
       heartbeat_job_alert_mail: mukessingh@deloitte.com
+      pipeline_tag: ipac_delta_sync
+      job_tag: ipac_delta_sync
 
 
   prod:
@@ -74,4 +82,6 @@ targets:
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
       heartbeat_job_alert_mail: mukessingh@deloitte.com
+      pipeline_tag: ipac_delta_sync
+      job_tag: ipac_delta_sync
 
