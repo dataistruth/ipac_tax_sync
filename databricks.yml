@@ -30,7 +30,10 @@ variables:
     description: Common UC catalog for all clients
   dest_schema_suffix:
     default: "poc_1"
-    description: Suffix appended to client_nm for per-client UC schema ({client_nm}{suffix}, e.g. iPC_2025_Dev7_15350poc_1)
+    description: Suffix appended to client_nm for per-table destination_schema ({client_nm}{suffix})
+  uc_lkf_staging_schema:
+    default: ""
+    description: Pipeline-level Lakeflow staging schema (${var.uc_lkf_staging_schema}); table destination_schema remains per-client
   ipac_metadata_schema:
     default: ipac_metadata
     description: Metadata schema for process logs and heartbeat status tables

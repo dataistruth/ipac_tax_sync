@@ -13,7 +13,9 @@ from util.bundle_config import (
     resolve_ipac_metadata_schema,
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
+    resolve_uc_lkf_staging_schema,
     uc_catalog_var_ref,
+    uc_lkf_staging_schema_var_ref,
 )
 from util.config_loader import (
     format_validation_error,
@@ -162,6 +164,11 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         override=getattr(args, "dest_schema_suffix", None),
         target=getattr(args, "target", None),
     )
+    uc_lkf_staging_schema_ref = uc_lkf_staging_schema_var_ref()
+    resolved_uc_lkf_staging_schema = resolve_uc_lkf_staging_schema(
+        override=getattr(args, "uc_lkf_staging_schema", None),
+        target=getattr(args, "target", None),
+    )
     metadata_schema = resolve_ipac_metadata_schema(
         override=getattr(args, "ipac_metadata_schema", None),
         target=getattr(args, "target", None),
@@ -187,6 +194,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         resolved_uc_catalog=resolved_uc_catalog,
                         num_of_tables_in_pipeline=num_tables,
                         dest_schema_suffix=dest_schema_suffix,
+                        uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
+                        resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                     )
                 )
                 print()
@@ -202,6 +211,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 resolved_uc_catalog=resolved_uc_catalog,
                 num_of_tables_in_pipeline=num_tables,
                 dest_schema_suffix=dest_schema_suffix,
+                uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
+                resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
             )
             _log(f"--- {client.client_nm}: writing per-batch pipeline YAML...")
             client_paths = write_client_pipeline_yamls(
@@ -213,6 +224,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 resolved_uc_catalog=resolved_uc_catalog,
                 num_of_tables_in_pipeline=num_tables,
                 dest_schema_suffix=dest_schema_suffix,
+                uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
+                resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
             )
             _log(f"--- {client.client_nm}: writing SQL scripts...")
             enable_path, ct_grant_path, cdc_grant_path = write_source_replication_sql(
@@ -308,6 +321,10 @@ def build_parser() -> argparse.ArgumentParser:
     generate_p.add_argument(
         "--dest-schema-suffix",
         help="Override destination schema suffix (default from databricks.yml var.dest_schema_suffix)",
+    )
+    generate_p.add_argument(
+        "--uc-lkf-staging-schema",
+        help="Override pipeline schema literal for YAML comments (bundle uses ${var.uc_lkf_staging_schema})",
     )
     generate_p.add_argument(
         "--ipac-metadata-schema",
