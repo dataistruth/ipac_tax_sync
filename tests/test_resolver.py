@@ -4,7 +4,9 @@ from util.bundle_config import (
     resolve_dest_schema_suffix,
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
+    resolve_uc_staging_schema,
     uc_catalog_var_ref,
+    uc_staging_schema_var_ref,
 )
 from util.config_loader import get_client, load_client_overrides, load_common_tables, load_client_registry
 from util.pipeline_generator import (
@@ -23,6 +25,7 @@ from util.sql_generator import (
 )
 
 UC_REF = uc_catalog_var_ref()
+STAGING_SCHEMA_REF = uc_staging_schema_var_ref()
 
 
 def _active_clients():
@@ -63,7 +66,7 @@ def test_dest_schema_suffix_default_empty():
     assert resolve_dest_schema_suffix() == "poc_1"
 
 
-def test_generate_yaml_uses_client_name_as_schema_when_suffix_empty():
+def test_generate_yaml_uses_uc_staging_schema_var():
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15350")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
@@ -76,13 +79,13 @@ def test_generate_yaml_uses_client_name_as_schema_when_suffix_empty():
         dest_schema_suffix="",
     )
 
-    assert f"schema: {client.client_nm}" in yaml_text
-    assert f"schema_name: {client.client_nm}" in yaml_text
-    assert f"destination_schema: '{client.client_nm}'" in yaml_text
+    assert f"schema: {STAGING_SCHEMA_REF}" in yaml_text
+    assert f"destination_schema: {STAGING_SCHEMA_REF}" in yaml_text
+    assert "data_staging_options:" not in yaml_text
     assert "serverless: false" in yaml_text
 
 
-def test_generate_yaml_uses_suffix_when_provided():
+def test_generate_yaml_uc_schema_resource_uses_client_suffix():
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15447")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
@@ -93,9 +96,10 @@ def test_generate_yaml_uses_suffix_when_provided():
         dest_schema_suffix="_raw",
     )
 
-    assert f"schema: {client.client_nm}_raw" in yaml_text
-    assert f"schema_name: {client.client_nm}_raw" in yaml_text
-    assert f"destination_schema: '{client.client_nm}_raw'" in yaml_text
+    assert f"uc_schema_resource:" in yaml_text
+    assert f"{client.client_nm}_raw" in yaml_text
+    assert f"schema: {STAGING_SCHEMA_REF}" in yaml_text
+    assert "data_staging_options:" not in yaml_text
 
 
 def test_chunk_tables_respects_batch_size():
@@ -166,7 +170,7 @@ def test_ct_grants_sql_dynamic_pk_only():
     assert "CREATE USER [" in sql_text
     assert "FOR LOGIN [" in sql_text
     assert "SKIP (no PK / use CDC grants)" in sql_text
-    assert "GRANT VIEW CHANGE TRACKING TO [" in sql_text
+    assert "GRANT VIEW CHANGE TRACKING ON SCHEMA::" in sql_text
     assert "GRANT SELECT, VIEW CHANGE TRACKING ON" in sql_text
 
 
