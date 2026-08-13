@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 
 from util.models import ClientEntry
 from util.paths import (
@@ -81,6 +82,14 @@ def remove_stale_client_dirs(active_names: set[str]) -> list[str]:
     return removed
 
 
+def _unlink_generated(path, removed: list[str]) -> None:
+    try:
+        path.unlink()
+        removed.append(str(path))
+    except OSError as exc:
+        print(f"WARN could not remove {path}: {exc}", file=sys.stderr)
+
+
 def remove_generated_pipeline_artifacts() -> list[str]:
     """Delete previously generated YAML under generated/ and src/*/pipelines."""
     removed: list[str] = []
@@ -88,20 +97,17 @@ def remove_generated_pipeline_artifacts() -> list[str]:
     bundle_dir = generated_bundle_dir()
     if bundle_dir.exists():
         for path in bundle_dir.glob("*.yml"):
-            path.unlink()
-            removed.append(str(path))
+            _unlink_generated(path, removed)
 
     schema_dir = generated_schema_dir()
     if schema_dir.exists():
         for path in schema_dir.glob("*.yml"):
-            path.unlink()
-            removed.append(str(path))
+            _unlink_generated(path, removed)
 
     config_dir = generated_config_dir()
     if config_dir.exists():
         for path in config_dir.glob("*.json"):
-            path.unlink()
-            removed.append(str(path))
+            _unlink_generated(path, removed)
 
     root = src_dir()
     if root.exists():
@@ -112,7 +118,6 @@ def remove_generated_pipeline_artifacts() -> list[str]:
             if not pipelines_dir.exists():
                 continue
             for path in pipelines_dir.glob("*.yml"):
-                path.unlink()
-                removed.append(str(path))
+                _unlink_generated(path, removed)
 
     return removed

@@ -9,7 +9,6 @@ import yaml
 from util.paths import project_root
 
 UC_CATALOG_VAR_REF = "${var.uc_catalog}"
-UC_STAGING_SCHEMA_VAR_REF = "${var.uc_staging_schema}"
 
 
 def databricks_yml_path() -> Path:
@@ -89,29 +88,6 @@ def resolve_num_of_tables_in_pipeline(
     if batch_size <= 0:
         raise ValueError("num_of_tables_in_pipeline must be a positive integer")
     return batch_size
-
-
-def resolve_uc_staging_schema(
-    override: str | None = None,
-    target: str | None = None,
-    databricks_yml: Path | None = None,
-) -> str:
-    """Resolve UC staging/raw schema name from bundle variable."""
-    value = _resolve_variable(
-        "uc_staging_schema",
-        "",
-        override=override,
-        target=target,
-        databricks_yml=databricks_yml,
-    )
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
-def uc_staging_schema_var_ref() -> str:
-    """Bundle variable reference for pipeline destination schema."""
-    return UC_STAGING_SCHEMA_VAR_REF
 
 
 def resolve_dest_schema_suffix(

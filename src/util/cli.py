@@ -13,9 +13,7 @@ from util.bundle_config import (
     resolve_ipac_metadata_schema,
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
-    resolve_uc_staging_schema,
     uc_catalog_var_ref,
-    uc_staging_schema_var_ref,
 )
 from util.config_loader import (
     format_validation_error,
@@ -117,6 +115,10 @@ def _cmd_sync_src(args: argparse.Namespace) -> int:
     return 0
 
 
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+
 def _cmd_generate(args: argparse.Namespace) -> int:
     registry = load_client_registry()
     catalog = load_common_tables()
@@ -131,14 +133,19 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         print("No active clients to generate.", file=sys.stderr)
         return 1
 
-    if not args.client and not args.stdout:
+    client_names = ", ".join(c.client_nm for c in clients)
+    _log(f"Generating for {len(clients)} client(s): {client_names}")
+
+    if not args.client and not args.stdout and not getattr(args, "no_clean", False):
+        _log("Cleaning old generated pipeline/schema artifacts...")
         removed = remove_generated_pipeline_artifacts()
         stale_dirs = remove_stale_client_dirs({c.client_nm for c in clients})
         if removed:
-            print(f"Removed {len(removed)} old generated pipeline file(s).")
+            _log(f"Removed {len(removed)} old generated file(s).")
         if stale_dirs:
-            print(f"Removed {len(stale_dirs)} stale client src folder(s).")
+            _log(f"Removed {len(stale_dirs)} stale client src folder(s).")
 
+    _log("Scaffolding src tree...")
     scaffold_src_tree(clients)
 
     bundle_dir = args.output_dir or generated_bundle_dir()
@@ -155,11 +162,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         override=getattr(args, "dest_schema_suffix", None),
         target=getattr(args, "target", None),
     )
-    uc_staging_schema_ref = uc_staging_schema_var_ref()
-    resolved_uc_staging_schema = resolve_uc_staging_schema(
-        override=getattr(args, "uc_staging_schema", None),
-        target=getattr(args, "target", None),
-    )
     metadata_schema = resolve_ipac_metadata_schema(
         override=getattr(args, "ipac_metadata_schema", None),
         target=getattr(args, "target", None),
@@ -171,6 +173,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
     for client in clients:
         try:
+            _log(f"--- {client.client_nm}: resolving tables...")
             overrides = load_client_overrides(client.client_nm)
             tables = resolve_effective_tables(client, catalog, overrides)
 
@@ -184,13 +187,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         resolved_uc_catalog=resolved_uc_catalog,
                         num_of_tables_in_pipeline=num_tables,
                         dest_schema_suffix=dest_schema_suffix,
-                        uc_staging_schema_ref=uc_staging_schema_ref,
-                        resolved_uc_staging_schema=resolved_uc_staging_schema,
                     )
                 )
                 print()
                 continue
 
+            _log(f"--- {client.client_nm}: writing bundle pipeline YAML ({len(tables)} tables)...")
             bundle_path = write_bundle_pipeline_yaml(
                 client,
                 tables,
@@ -200,9 +202,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 resolved_uc_catalog=resolved_uc_catalog,
                 num_of_tables_in_pipeline=num_tables,
                 dest_schema_suffix=dest_schema_suffix,
-                uc_staging_schema_ref=uc_staging_schema_ref,
-                resolved_uc_staging_schema=resolved_uc_staging_schema,
             )
+            _log(f"--- {client.client_nm}: writing per-batch pipeline YAML...")
             client_paths = write_client_pipeline_yamls(
                 client,
                 tables,
@@ -212,9 +213,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 resolved_uc_catalog=resolved_uc_catalog,
                 num_of_tables_in_pipeline=num_tables,
                 dest_schema_suffix=dest_schema_suffix,
-                uc_staging_schema_ref=uc_staging_schema_ref,
-                resolved_uc_staging_schema=resolved_uc_staging_schema,
             )
+            _log(f"--- {client.client_nm}: writing SQL scripts...")
             enable_path, ct_grant_path, cdc_grant_path = write_source_replication_sql(
                 client,
                 tables,
@@ -229,28 +229,31 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             )
             print(
                 f"Generated {bundle_path} ({len(tables)} tables, "
-                f"{len(client_paths)} pipeline(s), batch={num_tables})"
+                f"{len(client_paths)} pipeline(s), batch={num_tables})",
+                flush=True,
             )
             for path in client_paths:
-                print(f"Generated {path}")
+                print(f"Generated {path}", flush=True)
                 generated_pipeline_names.append(path.rsplit("/", 1)[-1].replace(".yml", ""))
-            print(f"Generated {enable_path}")
-            print(f"Generated {ct_grant_path}")
-            print(f"Generated {cdc_grant_path}")
-            print(f"Generated {schema_path}")
+            print(f"Generated {enable_path}", flush=True)
+            print(f"Generated {ct_grant_path}", flush=True)
+            print(f"Generated {cdc_grant_path}", flush=True)
+            print(f"Generated {schema_path}", flush=True)
         except (ValidationError, ValueError, FileNotFoundError) as exc:
             errors += 1
             print(f"FAIL {client.client_nm}: {exc}", file=sys.stderr)
 
     if not args.stdout:
+        _log("Writing metadata schema and pipeline registry...")
         metadata_schema_path = write_metadata_schema_resource_yaml(
             metadata_schema=metadata_schema,
             output_dir=schema_dir,
             uc_catalog_ref=uc_catalog_ref,
         )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
-        print(f"Generated {metadata_schema_path}")
-        print(f"Generated {registry_path}")
+        print(f"Generated {metadata_schema_path}", flush=True)
+        print(f"Generated {registry_path}", flush=True)
+        _log("Done.")
 
     return 1 if errors else 0
 
@@ -298,12 +301,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override num_of_tables_in_pipeline for this generate run (default from databricks.yml)",
     )
     generate_p.add_argument(
-        "--dest-schema-suffix",
-        help="Override destination schema suffix (default from databricks.yml var.dest_schema_suffix)",
+        "--no-clean",
+        action="store_true",
+        help="Skip deleting old generated pipeline/schema files before writing (overwrites in place)",
     )
     generate_p.add_argument(
-        "--uc-staging-schema",
-        help="Override UC staging schema literal for YAML comments (bundle uses ${var.uc_staging_schema})",
+        "--dest-schema-suffix",
+        help="Override destination schema suffix (default from databricks.yml var.dest_schema_suffix)",
     )
     generate_p.add_argument(
         "--ipac-metadata-schema",

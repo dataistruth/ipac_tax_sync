@@ -30,10 +30,7 @@ variables:
     description: Common UC catalog for all clients
   dest_schema_suffix:
     default: "poc_1"
-    description: Optional suffix appended to client_nm for UC schema resources ({client_nm}{suffix})
-  uc_staging_schema:
-    default: ""
-    description: UC schema for Lakeflow pipeline catalog.schema and table destinations (${var.uc_staging_schema})
+    description: Suffix appended to client_nm for per-client UC schema ({client_nm}{suffix}, e.g. iPC_2025_Dev7_15350poc_1)
   ipac_metadata_schema:
     default: ipac_metadata
     description: Metadata schema for process logs and heartbeat status tables
@@ -56,8 +53,7 @@ targets:
     default: true
     variables:
       uc_catalog: ipac_tax_synch
-      dest_schema_suffix: ""
-      uc_staging_schema: ""
+      dest_schema_suffix: "poc_1"
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
@@ -70,8 +66,7 @@ targets:
       root_path: /Workspace/Shared/ipac_delta_sync/prod
     variables:
       uc_catalog: ipac_tax_synch
-      dest_schema_suffix: ""
-      uc_staging_schema: ""
+      dest_schema_suffix: "poc_1"
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900

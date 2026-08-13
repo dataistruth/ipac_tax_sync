@@ -4,8 +4,22 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
-if command -v uv >/dev/null 2>&1; then
-  exec uv run python -m util.cli "$@"
-else
-  exec python -m util.cli "$@"
-fi
+
+_run_python() {
+  if [[ -n "${VIRTUAL_ENV:-}" ]] && command -v python >/dev/null 2>&1; then
+    if python -c "import pydantic" >/dev/null 2>&1; then
+      exec python -m util.cli "$@"
+    fi
+  fi
+  if command -v uv >/dev/null 2>&1; then
+  # Avoid long silent uv lock/sync when an activated venv already has deps.
+    exec uv run --no-sync python -m util.cli "$@"
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    exec python3 -m util.cli "$@"
+  fi
+  echo "ipac-delta-sync: activate the project venv or install uv + pydantic." >&2
+  exit 1
+}
+
+_run_python "$@"
