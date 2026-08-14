@@ -13,6 +13,8 @@ UC_LKF_STAGING_SCHEMA_VAR_REF = "${var.uc_lkf_staging_schema}"
 PIPELINE_TAG_VAR_REF = "${var.pipeline_tag}"
 JOB_TAG_VAR_REF = "${var.job_tag}"
 PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF = "${var.pipeline_max_update_retry_attempts}"
+PIPELINE_CLUSTER_NODE_TYPE_VAR_REF = "${var.pipeline_cluster_node_type}"
+PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
 
 
 def databricks_yml_path() -> Path:
@@ -211,3 +213,11 @@ def pipeline_max_update_retry_attempts_var_ref() -> str:
 def job_tag_var_ref() -> str:
     """Bundle variable reference for job tags."""
     return JOB_TAG_VAR_REF
+
+
+def pipeline_cluster_node_type_var_ref() -> str:
+    return PIPELINE_CLUSTER_NODE_TYPE_VAR_REF
+
+
+def pipeline_spark_version_var_ref() -> str:
+    return PIPELINE_SPARK_VERSION_VAR_REF

@@ -110,6 +110,8 @@ class ClusterTier(BaseModel):
     serverless: bool = True
     min_workers: int = 1
     max_workers: int = 2
+    driver_node_type_id: str = ""
+    policy_id: str = ""
 
 
 class ClusterConfig(BaseModel):

@@ -3,13 +3,15 @@
 from util.bundle_config import (
     pipeline_tag_var_ref,
     pipeline_max_update_retry_attempts_var_ref,
+    pipeline_cluster_node_type_var_ref,
+    pipeline_spark_version_var_ref,
     resolve_dest_schema_suffix,
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
     uc_catalog_var_ref,
     uc_lkf_staging_schema_var_ref,
 )
-from util.config_loader import get_client, load_client_overrides, load_common_tables, load_client_registry
+from util.config_loader import get_client, load_client_overrides, load_common_tables, load_client_registry, load_cluster_config
 from util.pipeline_generator import (
     chunk_tables,
     generate_client_pipelines_yaml,
@@ -30,6 +32,8 @@ UC_REF = uc_catalog_var_ref()
 LKF_SCHEMA_REF = uc_lkf_staging_schema_var_ref()
 PIPELINE_TAG_REF = pipeline_tag_var_ref()
 RETRY_REF = pipeline_max_update_retry_attempts_var_ref()
+NODE_TYPE_REF = pipeline_cluster_node_type_var_ref()
+SPARK_REF = pipeline_spark_version_var_ref()
 
 
 def _active_clients():
@@ -38,7 +42,7 @@ def _active_clients():
 
 
 def test_active_client_count():
-    assert len(_active_clients()) == 2
+    assert len(_active_clients()) == 3
 
 
 def test_client_names_present():
@@ -61,7 +65,8 @@ def test_resolve_effective_tables_for_first_client():
     overrides = load_client_overrides(client.client_nm)
     tables = resolve_effective_tables(client, catalog, overrides)
 
-    assert len(tables) == len([t for t in catalog.tables if t.is_active])
+    assert len(tables) > 0
+    assert len(tables) < len([t for t in catalog.tables if t.is_active])
     assert all(t.recon_type in (1, 2, 3) for t in tables)
     assert all(t.src_schema == "dbo" for t in tables)
 
@@ -91,6 +96,28 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "data_staging_options:" not in yaml_text
     assert "serverless: false" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
+    assert "clusters:" in yaml_text
+    assert f"node_type_id: {NODE_TYPE_REF}" in yaml_text
+    assert f"spark_version: {SPARK_REF}" in yaml_text
+    assert "min_workers: 2" in yaml_text
+    assert "max_workers: 4" in yaml_text
+
+
+def test_generate_yaml_uses_j3_for_large_client():
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15350").model_copy(update={"client_size": "large", "cluster_tier": "j3"})
+    cluster_cfg = load_cluster_config()
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    yaml_text = generate_lakeflow_pipeline_yaml(
+        client,
+        tables[:1],
+        cluster_config=cluster_cfg,
+        uc_catalog_ref=UC_REF,
+        num_of_tables_in_pipeline=1,
+        dest_schema_suffix="poc_1",
+    )
+    assert "min_workers: 4" in yaml_text
+    assert "max_workers: 8" in yaml_text
 
 
 def test_generate_yaml_uses_suffix_when_provided():

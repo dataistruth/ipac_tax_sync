@@ -6,11 +6,14 @@ from typing import TYPE_CHECKING
 
 from util.bundle_config import (
     JOB_TAG_VAR_REF,
+    PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
     PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    PIPELINE_SPARK_VERSION_VAR_REF,
     PIPELINE_TAG_VAR_REF,
     UC_CATALOG_VAR_REF,
     UC_LKF_STAGING_SCHEMA_VAR_REF,
 )
+from util.cluster_tiers import expected_job_tier_for_size, format_pipeline_cluster_lines
 
 if TYPE_CHECKING:
     from util.models import ClientEntry, ClusterConfig, ClusterTier, EffectiveTable
@@ -34,9 +37,12 @@ def _parse_lq_key(raw: str | None) -> list[str]:
 
 
 def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None) -> ClusterTier | None:
-    if not cluster_config:
-        return None
-    return cluster_config.tiers.get(str(client.cluster_tier))
+    if cluster_config is None:
+        from util.config_loader import load_cluster_config
+
+        cluster_config = load_cluster_config()
+    tier_key = expected_job_tier_for_size(client.client_size)
+    return cluster_config.tiers.get(tier_key)
 
 
 def _format_object_lines(
@@ -87,6 +93,7 @@ def _pipeline_resource_lines(
 
     tier = _tier_for_client(client, cluster_config)
     pipeline_key = pipeline_resource_key(client.client_nm, serial)
+    job_tier_key = expected_job_tier_for_size(client.client_size)
 
     lines = [
         f"    {pipeline_key}:",
@@ -104,13 +111,29 @@ def _pipeline_resource_lines(
         f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
         f"      catalog: {uc_catalog_ref}",
         f"      schema: {uc_lkf_staging_schema_ref}",
+    ]
+
+    if tier:
+        lines.extend(
+            format_pipeline_cluster_lines(
+                tier,
+                PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
+                PIPELINE_SPARK_VERSION_VAR_REF,
+            )
+        )
+    else:
+        lines.append(f"      # cluster tier {job_tier_key}: cluster_config.json missing — add clusters block")
+
+    lines.extend(
+        [
         "      ingestion_definition:",
         f"        connection_name: {client.uc_conn_nm}",
         "        connector_type: CDC",
         "        table_configuration:",
         "          enable_auto_clustering: true",
         "        objects:",
-    ]
+        ]
+    )
 
     for table in tables:
         lines.extend(_format_object_lines(table, client, uc_catalog_ref, dest_schema_suffix))
@@ -143,9 +166,10 @@ def generate_client_pipelines_yaml(
 
     tier_note = ""
     if tier:
+        job_tier_key = expected_job_tier_for_size(client.client_size)
         tier_note = (
-            f"# client_size: {client.client_size} | cluster_tier: {client.cluster_tier} ({tier.label}) — "
-            f"{tier.description} (workers {tier.min_workers}-{tier.max_workers})"
+            f"# client_size: {client.client_size} → job tier {job_tier_key} ({tier.label}) — "
+            f"{tier.description} (autoscale {tier.min_workers}-{tier.max_workers} workers)"
         )
 
     batch_summary = ", ".join(str(len(b)) for b in batches)

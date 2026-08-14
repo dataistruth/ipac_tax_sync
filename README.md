@@ -26,10 +26,38 @@ config/common/
 | `src_db_nm` | SQL Server source catalog / database name |
 | `src_db_schema` | SQL Server schema (usually `dbo`) |
 | `uc_conn_nm` | Unity Catalog connection for Lakeflow |
-| `client_size` | One of `small`, `medium`, `large` |
-| `cluster_tier` | One of `s1`, `s2`, `s3`, `j1`, `j2`, `j3` |
+| `client_size` | One of `small`, `medium`, `large` — **drives job cluster tier** |
+| `cluster_tier` | Must match `client_size`: `small→j1`, `medium→j2`, `large→j3` (see `cluster_config.json`) |
 
-> Lakeflow Connect pipelines must use job-cluster tiers (`j1/j2/j3`), and generated YAML always sets `serverless: false`.
+### Cluster tiers (`cluster_config.json`)
+
+Six named profiles in `config/common/cluster_config.json`:
+
+| Tier | Type | Workers (autoscale) | Used for |
+|------|------|---------------------|----------|
+| `s1` | Serverless small | 1–2 | Reserved (not Lakeflow Connect CDC) |
+| `s2` | Serverless medium | 2–4 | Reserved (not Lakeflow Connect CDC) |
+| `s3` | Serverless large | 4–8 | Reserved (not Lakeflow Connect CDC) |
+| `j1` | Job cluster small | 1–2 | `client_size: small` |
+| `j2` | Job cluster medium | 2–4 | `client_size: medium` |
+| `j3` | Job cluster large | 4–8 | `client_size: large` |
+
+Lakeflow Connect CDC pipelines use **job clusters** (`j1`/`j2`/`j3`). Generated YAML sets `serverless: false` and a `clusters` block:
+
+```yaml
+clusters:
+  - label: default
+    node_type_id: ${var.pipeline_cluster_node_type}
+    spark_version: ${var.pipeline_spark_version}
+    data_security_mode: USER_ISOLATION
+    autoscale:
+      min_workers: 2   # from j2 in cluster_config.json
+      max_workers: 4
+```
+
+Set node type and Spark version in `databricks.yml` (`variables.pipeline_cluster_node_type`, `variables.pipeline_spark_version`). Classic compute for ingestion requires the bundle **direct deployment engine** (`bundle.engine: direct` in `databricks.yml`).
+
+> `cluster_tier` in `client.json` must agree with `client_size` (validate fails if e.g. `small` + `j2`).
 
 **UC catalog** is common for all clients — set in `databricks.yml` as `variables.uc_catalog`.
 **Destination schema suffix** is optional — set `variables.dest_schema_suffix` in `databricks.yml` (empty means schema is exactly `client_nm`).
@@ -74,6 +102,8 @@ src/
 
 ## CLI (run from repo root — no package install)
 
+### macOS / Linux (bash)
+
 ```bash
 uv sync --group dev
 chmod +x ipac-delta-sync   # once
@@ -90,7 +120,57 @@ Equivalent without the wrapper script:
 ```bash
 export PYTHONPATH=src
 uv run python -m util.cli validate
+uv run python -m util.cli generate
 ```
+
+### Windows (PowerShell)
+
+From the repo root (e.g. `C:\Users\you\PycharmProjects\ipac_delta_sync`):
+
+```powershell
+cd C:\path\to\ipac_delta_sync
+
+# One-time: install dev dependencies
+uv sync --group dev
+
+# Required each PowerShell session (same as export PYTHONPATH=src on bash)
+$env:PYTHONPATH = "$PWD\src"
+
+# Validate all active clients (or one client)
+uv run python -m util.cli validate
+uv run python -m util.cli validate --client iPC_2025_Dev7_15447
+
+# Generate pipelines, SQL, bundle artifacts (skip deleting old YAML with --no-clean)
+uv run python -m util.cli generate
+uv run python -m util.cli generate --no-clean
+uv run python -m util.cli generate --client iPC_2025_Dev7_15447 --no-clean
+
+# Other useful commands
+uv run python -m util.cli list-clients --active-only
+uv run python -m util.cli resolve --client iPC_2025_Dev7_15447
+```
+
+Persist `PYTHONPATH` for every new PowerShell window (optional):
+
+```powershell
+[System.Environment]::SetEnvironmentVariable(
+  "PYTHONPATH",
+  "C:\path\to\ipac_delta_sync\src",
+  "User"
+)
+```
+
+Then reopen the terminal, or in the current session:
+
+```powershell
+$env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
+```
+
+**Notes**
+
+- The `ipac-delta-sync` shell script is bash-only. On Windows use `uv run python -m util.cli …` as above, or run the script from **Git Bash**.
+- Use forward slashes or quoted paths if your repo path contains spaces.
+- If `uv` is not found, install [uv](https://docs.astral.sh/uv/) and ensure it is on your `PATH`.
 
 `generate` writes:
 
@@ -126,12 +206,31 @@ Monitor uses `variables.heartbeat_interval_sec` to decide staleness.
 
 1. Add a row to `config/common/client.json` with `is_active: true`
 2. Optionally add `config/common/client_overrides/<client_nm>.json`
-3. `./ipac-delta-sync validate --client <client_nm>`
-4. `./ipac-delta-sync generate --client <client_nm>`
+3. Validate and generate (bash or PowerShell — see CLI section above)
+
+   ```bash
+   ./ipac-delta-sync validate --client <client_nm>
+   ./ipac-delta-sync generate --client <client_nm>
+   ```
+
+   ```powershell
+   $env:PYTHONPATH = "$PWD\src"
+   uv run python -m util.cli validate --client <client_nm>
+   uv run python -m util.cli generate --client <client_nm> --no-clean
+   ```
 
 ## Tests
 
+### macOS / Linux
+
 ```bash
 uv sync --group dev
+uv run pytest
+```
+
+### Windows (PowerShell)
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
 uv run pytest
 ```

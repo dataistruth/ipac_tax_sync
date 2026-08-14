@@ -58,6 +58,12 @@ variables:
   pipeline_max_update_retry_attempts:
     default: 2
     description: Max update retries after failure for continuous Lakeflow pipelines (pipelines.numUpdateRetryAttempts)
+  pipeline_cluster_node_type:
+    default: Standard_DS3_v2
+    description: Node type for generated Lakeflow pipeline job clusters (clusters.label default)
+  pipeline_spark_version:
+    default: 15.4.x-scala2.12
+    description: Spark runtime for generated Lakeflow pipeline job clusters
 
 targets:
   dev:
