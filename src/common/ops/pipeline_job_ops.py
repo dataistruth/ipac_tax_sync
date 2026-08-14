@@ -11,6 +11,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,19 +138,45 @@ def _now_ms() -> int:
 def _strip_bundle_dev_prefix(name: str) -> str:
     """Remove bundle development-mode prefix, e.g. '[dev user] p_client_1' -> 'p_client_1'."""
     text = str(name).strip()
-    if text.startswith("[") and "] " in text:
-        return text.split("] ", 1)[1].strip()
+    if text.startswith("[") and "]" in text:
+        return text.split("]", 1)[1].strip()
     return text
 
 
+def _logical_pipeline_name(raw_name: str) -> str:
+    """Normalized pipeline name for matching (strip dev prefix, then casefold)."""
+    return _strip_bundle_dev_prefix(str(raw_name)).casefold()
+
+
+def _list_all_pipeline_statuses(
+    client: DatabricksRestClient,
+    filter_expr: str | None = None,
+) -> list[dict[str, Any]]:
+    """List pipelines with pagination (API default page size is 25)."""
+    statuses: list[dict[str, Any]] = []
+    page_token: str | None = None
+    while True:
+        query: dict[str, str] = {"max_results": "100"}
+        if filter_expr:
+            query["filter"] = filter_expr
+        if page_token:
+            query["page_token"] = page_token
+        path = "/api/2.0/pipelines?" + urllib.parse.urlencode(query)
+        payload = client.get(path)
+        batch = payload.get("statuses", []) if isinstance(payload, dict) else []
+        if isinstance(batch, list):
+            statuses.extend(batch)
+        page_token = payload.get("next_page_token") if isinstance(payload, dict) else None
+        if not page_token:
+            break
+    return statuses
+
+
 def _list_generated_pipelines(client: DatabricksRestClient, name_prefix: str) -> list[dict[str, Any]]:
-    payload = client.get("/api/2.0/pipelines")
-    statuses = payload.get("statuses", []) if isinstance(payload, dict) else []
     prefix = name_prefix.casefold()
     matched: list[dict[str, Any]] = []
-    for pipeline in statuses:
-        logical_name = _strip_bundle_dev_prefix(str(pipeline.get("name", "")))
-        if logical_name.casefold().startswith(prefix):
+    for pipeline in _list_all_pipeline_statuses(client):
+        if _logical_pipeline_name(str(pipeline.get("name", ""))).startswith(prefix):
             matched.append(pipeline)
     return matched
 
@@ -170,12 +197,44 @@ def _filter_pipelines(
 ) -> list[dict[str, Any]]:
     if not configured_names:
         return pipelines
-    configured = {name.casefold() for name in configured_names}
+    configured = {_logical_pipeline_name(name) for name in configured_names}
     return [
         p
         for p in pipelines
-        if _strip_bundle_dev_prefix(str(p.get("name", "")).casefold()) in configured
+        if _logical_pipeline_name(str(p.get("name", ""))) in configured
     ]
+
+
+def _select_pipelines_for_ops(
+    client: DatabricksRestClient,
+    name_prefix: str,
+    configured_names: set[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (selected pipelines, all prefix-matched pipelines for diagnostics)."""
+    prefix_matches = _list_generated_pipelines(client, name_prefix)
+    if not configured_names:
+        return prefix_matches, prefix_matches
+    return _filter_pipelines(prefix_matches, configured_names), prefix_matches
+
+
+def _pipeline_match_failure_message(
+    configured_names: set[str],
+    prefix_matches: list[dict[str, Any]],
+    name_prefix: str,
+) -> str:
+    configured = sorted(configured_names)
+    available_logical = sorted(
+        {_logical_pipeline_name(str(p.get("name", ""))) for p in prefix_matches}
+    )
+    raw_names = sorted({str(p.get("name", "")) for p in prefix_matches})
+    return (
+        f"No API pipelines matched pipeline_names.json ({len(configured)} configured name(s)). "
+        f"Configured: {configured}. "
+        f"Prefix '{name_prefix}' logical names ({len(available_logical)}): {available_logical}. "
+        f"Raw API names (sample): {raw_names[:10]}. "
+        "Regenerate with `ipac-delta-sync generate` and redeploy the bundle so "
+        "generated/config/pipeline_names.json matches deployed pipeline names."
+    )
 
 
 def _latest_update_timestamps_ms(detail: dict[str, Any]) -> list[int]:
@@ -278,8 +337,7 @@ def poll_monitored_pipelines(
 ) -> list[PipelinePollSnapshot]:
     client = DatabricksRestClient()
     configured_names = set(_load_pipeline_names(pipeline_names_file))
-    pipelines = _list_generated_pipelines(client, name_prefix)
-    pipelines = _filter_pipelines(pipelines, configured_names)
+    pipelines, _ = _select_pipelines_for_ops(client, name_prefix, configured_names)
 
     snapshots: list[PipelinePollSnapshot] = []
     for p in pipelines:
@@ -348,23 +406,21 @@ def run_monitor(
         monitor_run_id=monitor_run_id,
     )
 
+    configured_names = set(_load_pipeline_names(pipeline_names_file))
     if snapshots:
         print(f"Polled {len(snapshots)} pipeline(s)")
+    elif configured_names:
+        client = DatabricksRestClient()
+        _, prefix_matches = _select_pipelines_for_ops(client, name_prefix, configured_names)
+        message = _pipeline_match_failure_message(configured_names, prefix_matches, name_prefix)
+        print(message)
+        raise RuntimeError(message)
     else:
-        configured_names = set(_load_pipeline_names(pipeline_names_file))
-        if configured_names:
-            print(
-                f"Found 0 generated pipeline(s) from configured list "
-                f"({len(configured_names)} names)"
-            )
-            sample = _list_generated_pipelines(DatabricksRestClient(), name_prefix)
-            logical = [_strip_bundle_dev_prefix(str(p.get("name", ""))) for p in sample[:10]]
-            print(
-                "No API pipelines matched pipeline_names.json after dev-prefix normalization. "
-                f"Prefix '{name_prefix}' logical names (sample): {logical}"
-            )
-        else:
-            print(f"Found 0 generated pipeline(s) with prefix '{name_prefix}'")
+        print(f"Found 0 generated pipeline(s) with prefix '{name_prefix}'")
+        raise RuntimeError(
+            f"No pipelines found with prefix '{name_prefix}'. "
+            "Deploy generated pipelines or adjust name_prefix."
+        )
 
     unhealthy: list[str] = []
     for snap in snapshots:
@@ -425,8 +481,11 @@ def run_restart(
 ) -> int:
     client = DatabricksRestClient()
     configured_names = set(_load_pipeline_names(pipeline_names_file))
-    pipelines = _list_generated_pipelines(client, name_prefix)
-    pipelines = _filter_pipelines(pipelines, configured_names)
+    pipelines, prefix_matches = _select_pipelines_for_ops(client, name_prefix, configured_names)
+    if configured_names and not pipelines:
+        raise RuntimeError(
+            _pipeline_match_failure_message(configured_names, prefix_matches, name_prefix)
+        )
     restarted = 0
 
     for p in pipelines:

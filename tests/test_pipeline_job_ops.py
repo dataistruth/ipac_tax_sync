@@ -15,14 +15,63 @@ class _FakeClient:
         self._statuses = statuses
 
     def get(self, path: str) -> dict:
-        if path == "/api/2.0/pipelines":
+        if path.startswith("/api/2.0/pipelines"):
             return {"statuses": self._statuses}
         raise AssertionError(path)
 
 
 def test_strip_bundle_dev_prefix():
     assert _strip_bundle_dev_prefix("[dev ipacs_dev_oauth_spn] p_client_1") == "p_client_1"
+    assert _strip_bundle_dev_prefix("[dev user]p_client_1") == "p_client_1"
     assert _strip_bundle_dev_prefix("p_client_1") == "p_client_1"
+
+
+def test_list_generated_pipelines_paginates():
+    class _PagingClient:
+        def get(self, path: str) -> dict:
+            if "page_token=page2" in path:
+                return {
+                    "statuses": [
+                        {"name": "p_page_2", "pipeline_id": "2"},
+                    ],
+                }
+            if path.startswith("/api/2.0/pipelines"):
+                return {
+                    "statuses": [
+                        {"name": "other", "pipeline_id": "0"},
+                        {"name": "p_page_1", "pipeline_id": "1"},
+                    ],
+                    "next_page_token": "page2",
+                }
+            raise AssertionError(path)
+
+    found = _list_generated_pipelines(_PagingClient(), "p_")
+    assert {p["pipeline_id"] for p in found} == {"1", "2"}
+
+
+def test_run_monitor_raises_when_configured_names_do_not_match(tmp_path):
+    from common.ops import pipeline_job_ops
+
+    client = _FakeClient(
+        [
+            {"name": "p_iPC_2025_Dev7_15347_1", "pipeline_id": "1"},
+            {"name": "p_iPC_2025_Dev7_15347_2", "pipeline_id": "2"},
+        ]
+    )
+    original = pipeline_job_ops.DatabricksRestClient
+    pipeline_job_ops.DatabricksRestClient = lambda *a, **k: client  # type: ignore[misc]
+    registry = tmp_path / "pipeline_names.json"
+    registry.write_text(
+        '{"pipelines": ["p_iPC_2025_Dev7_15447_1", "p_iPC_2025_Dev7_15447_2"]}',
+        encoding="utf-8",
+    )
+    try:
+        import pytest
+
+        with pytest.raises(RuntimeError, match="No API pipelines matched pipeline_names.json"):
+            pipeline_job_ops.run_monitor("p_", 900, str(registry))
+    finally:
+        pipeline_job_ops.DatabricksRestClient = original
 
 
 def test_list_generated_pipelines_ignores_dev_prefix_and_case():
@@ -54,7 +103,7 @@ class _DetailClient:
         self._details = details
 
     def get(self, path: str) -> dict:
-        if path == "/api/2.0/pipelines":
+        if path.startswith("/api/2.0/pipelines?"):
             return {
                 "statuses": [
                     {"name": "p_test_1", "pipeline_id": "pid-1"},
