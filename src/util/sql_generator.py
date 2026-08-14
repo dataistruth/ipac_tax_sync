@@ -390,6 +390,104 @@ def generate_cdc_grants_sql(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def generate_table_pk_ct_status_sql(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+) -> str:
+    """Report PK + CT status for resolved active tables (common + overrides)."""
+    values = _table_list_values_sql(tables)
+    schema_literal = _sql_literal(client.src_db_schema)
+    lines = _client_sql_header(
+        client,
+        "active tables PK + CT status check (common catalog + client overrides)",
+    )
+    lines.extend(
+        [
+            "SET NOCOUNT ON;",
+            "",
+            "DECLARE @schema SYSNAME = N'" + schema_literal + "';",
+            "",
+            "-- Database-level Change Tracking",
+            "SELECT",
+            "    DB_NAME() AS database_name,",
+            "    CASE WHEN EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID())",
+            "        THEN 1 ELSE 0 END AS db_ct_enabled;",
+            "",
+        ]
+    )
+    lines.extend(_table_list_setup(schema_literal, values))
+    lines.extend(
+        [
+            "-- Per-table: exists, primary key, change tracking",
+            "SELECT",
+            "    tl.table_name,",
+            "    CASE WHEN t.object_id IS NOT NULL THEN 1 ELSE 0 END AS table_exists,",
+            "    CASE WHEN pk.object_id IS NOT NULL THEN 1 ELSE 0 END AS has_pk,",
+            "    CASE WHEN ct.object_id IS NOT NULL THEN 1 ELSE 0 END AS ct_enabled,",
+            "    CASE",
+            "        WHEN t.object_id IS NULL THEN 'MISSING_TABLE'",
+            "        WHEN pk.object_id IS NULL THEN 'NO_PK'",
+            "        WHEN ct.object_id IS NULL THEN 'CT_NOT_ENABLED'",
+            "        ELSE 'CT_OK'",
+            "    END AS pk_ct_status",
+            "FROM #table_list tl",
+            "LEFT JOIN sys.tables t",
+            "    ON t.object_id = OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(tl.table_name))",
+            "LEFT JOIN (",
+            "    SELECT object_id FROM sys.indexes WHERE is_primary_key = 1",
+            ") pk ON pk.object_id = t.object_id",
+            "LEFT JOIN sys.change_tracking_tables ct ON ct.object_id = t.object_id",
+            "ORDER BY tl.table_name;",
+            "",
+            "-- Summary",
+            "SELECT pk_ct_status, COUNT(*) AS table_count",
+            "FROM (",
+            "    SELECT",
+            "        CASE",
+            "            WHEN t.object_id IS NULL THEN 'MISSING_TABLE'",
+            "            WHEN pk.object_id IS NULL THEN 'NO_PK'",
+            "            WHEN ct.object_id IS NULL THEN 'CT_NOT_ENABLED'",
+            "            ELSE 'CT_OK'",
+            "        END AS pk_ct_status",
+            "    FROM #table_list tl",
+            "    LEFT JOIN sys.tables t",
+            "        ON t.object_id = OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(tl.table_name))",
+            "    LEFT JOIN (",
+            "        SELECT object_id FROM sys.indexes WHERE is_primary_key = 1",
+            "    ) pk ON pk.object_id = t.object_id",
+            "    LEFT JOIN sys.change_tracking_tables ct ON ct.object_id = t.object_id",
+            ") s",
+            "GROUP BY pk_ct_status",
+            "ORDER BY pk_ct_status;",
+            "",
+            "-- Problems only",
+            "SELECT table_name, pk_ct_status",
+            "FROM (",
+            "    SELECT",
+            "        tl.table_name,",
+            "        CASE",
+            "            WHEN t.object_id IS NULL THEN 'MISSING_TABLE'",
+            "            WHEN pk.object_id IS NULL THEN 'NO_PK'",
+            "            WHEN ct.object_id IS NULL THEN 'CT_NOT_ENABLED'",
+            "            ELSE 'CT_OK'",
+            "        END AS pk_ct_status",
+            "    FROM #table_list tl",
+            "    LEFT JOIN sys.tables t",
+            "        ON t.object_id = OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(tl.table_name))",
+            "    LEFT JOIN (",
+            "        SELECT object_id FROM sys.indexes WHERE is_primary_key = 1",
+            "    ) pk ON pk.object_id = t.object_id",
+            "    LEFT JOIN sys.change_tracking_tables ct ON ct.object_id = t.object_id",
+            ") r",
+            "WHERE r.pk_ct_status <> 'CT_OK'",
+            "ORDER BY r.table_name;",
+            "GO",
+            "",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def write_enable_ct_or_cdc_sql(
     client: ClientEntry,
     tables: list[EffectiveTable],
@@ -434,13 +532,25 @@ def write_cdc_grants_sql(
     return str(out_file)
 
 
+def write_table_pk_ct_status_sql(
+    client: ClientEntry,
+    tables: list[EffectiveTable],
+    sql_dir: Path | str,
+) -> str:
+    out_dir = Path(sql_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{client.client_nm}_active_tables_pk_ct_status.sql"
+    out_file.write_text(generate_table_pk_ct_status_sql(client, tables), encoding="utf-8")
+    return str(out_file)
+
+
 def write_source_replication_sql(
     client: ClientEntry,
     tables: list[EffectiveTable],
     sql_dir: Path | str,
     principal_placeholder: str = "<KEEP_USER_ID>",
-) -> tuple[str, str, str]:
-    """Write enable + CT grants + CDC grants (3 scripts total)."""
+) -> tuple[str, str, str, str]:
+    """Write enable + CT grants + CDC grants + PK/CT status check (4 scripts total)."""
     enable_path = write_enable_ct_or_cdc_sql(client, tables, sql_dir)
     ct_grant_path = write_ct_grants_sql(
         client, tables, sql_dir, principal_placeholder=principal_placeholder
@@ -448,4 +558,5 @@ def write_source_replication_sql(
     cdc_grant_path = write_cdc_grants_sql(
         client, tables, sql_dir, principal_placeholder=principal_placeholder
     )
-    return enable_path, ct_grant_path, cdc_grant_path
+    status_path = write_table_pk_ct_status_sql(client, tables, sql_dir)
+    return enable_path, ct_grant_path, cdc_grant_path, status_path

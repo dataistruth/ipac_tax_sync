@@ -18,9 +18,10 @@ from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.schema_generator import generate_schema_resource_yaml
 from util.sql_generator import (
+    generate_enable_ct_or_cdc_sql,
+    generate_table_pk_ct_status_sql,
     generate_cdc_grants_sql,
     generate_ct_grants_sql,
-    generate_enable_ct_or_cdc_sql,
     write_source_replication_sql,
 )
 
@@ -193,12 +194,28 @@ def test_cdc_grants_sql_non_pk_only():
     assert "@cdc_change_table = @capture_instance + N'_CT'" in sql_text
 
 
-def test_write_source_replication_sql_writes_three_files(tmp_path):
+def test_table_pk_ct_status_sql_lists_active_tables():
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15447")
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    sql_text = generate_table_pk_ct_status_sql(client, tables)
+
+    assert "active tables PK + CT status check" in sql_text
+    assert "has_pk" in sql_text
+    assert "ct_enabled" in sql_text
+    assert "pk_ct_status" in sql_text
+    assert "CT_NOT_ENABLED" in sql_text
+    assert tables[0].table_nm in sql_text
+    assert f"INSERT INTO #table_list (table_name) VALUES" in sql_text
+
+
+def test_write_source_replication_sql_writes_four_files(tmp_path):
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15350")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
     paths = write_source_replication_sql(client, tables, tmp_path)
-    assert len(paths) == 3
+    assert len(paths) == 4
     assert paths[0].endswith("_enable_ct_or_cdc.sql")
     assert paths[1].endswith("_grant_ct_access.sql")
     assert paths[2].endswith("_grant_cdc_access.sql")
+    assert paths[3].endswith("_active_tables_pk_ct_status.sql")

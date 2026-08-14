@@ -233,7 +233,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 pipeline_tag_ref=pipeline_tag_ref,
             )
             _log(f"--- {client.client_nm}: writing SQL scripts...")
-            enable_path, ct_grant_path, cdc_grant_path = write_source_replication_sql(
+            enable_path, ct_grant_path, cdc_grant_path, status_path = write_source_replication_sql(
                 client,
                 tables,
                 client_sql_dir(client.client_nm),
@@ -256,6 +256,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             print(f"Generated {enable_path}", flush=True)
             print(f"Generated {ct_grant_path}", flush=True)
             print(f"Generated {cdc_grant_path}", flush=True)
+            print(f"Generated {status_path}", flush=True)
             print(f"Generated {schema_path}", flush=True)
         except (ValidationError, ValueError, FileNotFoundError) as exc:
             errors += 1
