@@ -105,10 +105,24 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _strip_bundle_dev_prefix(name: str) -> str:
+    """Remove bundle development-mode prefix, e.g. '[dev user] p_client_1' -> 'p_client_1'."""
+    text = str(name).strip()
+    if text.startswith("[") and "] " in text:
+        return text.split("] ", 1)[1].strip()
+    return text
+
+
 def _list_generated_pipelines(client: DatabricksRestClient, name_prefix: str) -> list[dict[str, Any]]:
     payload = client.get("/api/2.0/pipelines")
     statuses = payload.get("statuses", []) if isinstance(payload, dict) else []
-    return [p for p in statuses if str(p.get("name", "")).startswith(name_prefix)]
+    prefix = name_prefix.casefold()
+    matched: list[dict[str, Any]] = []
+    for pipeline in statuses:
+        logical_name = _strip_bundle_dev_prefix(str(pipeline.get("name", "")))
+        if logical_name.casefold().startswith(prefix):
+            matched.append(pipeline)
+    return matched
 
 
 def _load_pipeline_names(path: str | None) -> list[str]:
@@ -127,7 +141,12 @@ def _filter_pipelines(
 ) -> list[dict[str, Any]]:
     if not configured_names:
         return pipelines
-    return [p for p in pipelines if str(p.get("name", "")) in configured_names]
+    configured = {name.casefold() for name in configured_names}
+    return [
+        p
+        for p in pipelines
+        if _strip_bundle_dev_prefix(str(p.get("name", "")).casefold()) in configured
+    ]
 
 
 def _pipeline_health(
@@ -191,6 +210,15 @@ def run_monitor(
             f"Found {len(pipelines)} generated pipeline(s) from configured list "
             f"({len(configured_names)} names)"
         )
+        if not pipelines and configured_names:
+            sample = _list_generated_pipelines(client, name_prefix)
+            logical = [
+                _strip_bundle_dev_prefix(str(p.get("name", ""))) for p in sample[:10]
+            ]
+            print(
+                "No API pipelines matched pipeline_names.json after dev-prefix normalization. "
+                f"Prefix '{name_prefix}' logical names (sample): {logical}"
+            )
     else:
         print(f"Found {len(pipelines)} generated pipeline(s) with prefix '{name_prefix}'")
 

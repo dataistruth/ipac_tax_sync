@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from util.bundle_config import (
     JOB_TAG_VAR_REF,
+    PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     PIPELINE_TAG_VAR_REF,
     UC_CATALOG_VAR_REF,
     UC_LKF_STAGING_SCHEMA_VAR_REF,
@@ -79,6 +80,7 @@ def _pipeline_resource_lines(
     uc_lkf_staging_schema_ref: str,
     pipeline_tag_ref: str,
     dest_schema_suffix: str,
+    pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
 ) -> list[str]:
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
@@ -98,6 +100,8 @@ def _pipeline_resource_lines(
         "      channel: PREVIEW",
         "      serverless: false",
         "      continuous: true",
+        "      configuration:",
+        f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
         f"      catalog: {uc_catalog_ref}",
         f"      schema: {uc_lkf_staging_schema_ref}",
         "      ingestion_definition:",
@@ -125,6 +129,7 @@ def generate_client_pipelines_yaml(
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
+    pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
 ) -> str:
     """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
     if not tables:
@@ -170,6 +175,7 @@ def generate_client_pipelines_yaml(
                 uc_lkf_staging_schema_ref,
                 pipeline_tag_ref,
                 dest_schema_suffix,
+                pipeline_max_update_retry_attempts_ref,
             )
         )
 
@@ -187,6 +193,7 @@ def generate_lakeflow_pipeline_yaml(
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
+    pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
 ) -> str:
     """Alias for generate_client_pipelines_yaml."""
     return generate_client_pipelines_yaml(
@@ -200,6 +207,7 @@ def generate_lakeflow_pipeline_yaml(
         uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
         pipeline_tag_ref=pipeline_tag_ref,
+        pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
     )
 
 
@@ -216,6 +224,7 @@ def write_pipeline_yaml(
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
+    pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
 ) -> str:
     """Write one pipeline batch to a file (serial required when writing a single batch)."""
     from pathlib import Path
@@ -241,6 +250,7 @@ def write_pipeline_yaml(
             uc_lkf_staging_schema_ref,
             pipeline_tag_ref,
             dest_schema_suffix,
+            pipeline_max_update_retry_attempts_ref,
         )
         content = "\n".join(header + body) + "\n"
     else:
@@ -255,6 +265,7 @@ def write_pipeline_yaml(
             uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
             resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
             pipeline_tag_ref=pipeline_tag_ref,
+            pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
         )
 
     path = Path(output_path)
@@ -275,6 +286,7 @@ def write_bundle_pipeline_yaml(
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
+    pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
 ) -> str:
     from pathlib import Path
 
@@ -291,6 +303,7 @@ def write_bundle_pipeline_yaml(
         uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
         pipeline_tag_ref=pipeline_tag_ref,
+        pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
     )
 
 
@@ -306,6 +319,7 @@ def write_client_pipeline_yamls(
     uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
+    pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
 ) -> list[str]:
     """Write p_<client_nm>_<n>.yml per pipeline batch under src/<client>/pipelines/."""
     from pathlib import Path
@@ -331,6 +345,7 @@ def write_client_pipeline_yamls(
                 uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                 pipeline_tag_ref=pipeline_tag_ref,
+                pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
             )
         )
 

@@ -48,12 +48,25 @@ def client_override_path(client_nm: str) -> Path:
     return client_overrides_dir() / f"{client_nm}.json"
 
 
+def _resolve_client_override_path(client_nm: str) -> Path | None:
+    """Resolve override JSON path; match filename case-insensitively (Windows-friendly)."""
+    override_dir = client_overrides_dir()
+    exact = override_dir / f"{client_nm}.json"
+    if exact.exists():
+        return exact
+    target = client_nm.casefold()
+    for path in override_dir.glob("*.json"):
+        if path.stem.casefold() == target:
+            return path
+    return None
+
+
 def load_client_overrides(client_nm: str, path: Path | None = None) -> ClientOverrides | None:
-    file_path = path or client_override_path(client_nm)
-    if not file_path.exists():
+    file_path = path or _resolve_client_override_path(client_nm)
+    if file_path is None:
         return None
     overrides = ClientOverrides.model_validate(_read_json(file_path))
-    if overrides.client_nm != client_nm:
+    if overrides.client_nm.casefold() != client_nm.casefold():
         raise ValueError(
             f"client_nm mismatch: file '{client_nm}' vs JSON client_nm '{overrides.client_nm}'"
         )
@@ -64,6 +77,10 @@ def get_client(client_nm: str, registry: ClientRegistry | None = None) -> Client
     reg = registry or load_client_registry()
     for client in reg.clients:
         if client.client_nm == client_nm:
+            return client
+    target = client_nm.casefold()
+    for client in reg.clients:
+        if client.client_nm.casefold() == target:
             return client
     raise ValueError(f"Client not found in client.json: {client_nm}")
 

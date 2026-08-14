@@ -2,6 +2,7 @@
 
 from util.bundle_config import (
     pipeline_tag_var_ref,
+    pipeline_max_update_retry_attempts_var_ref,
     resolve_dest_schema_suffix,
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
@@ -28,6 +29,7 @@ from util.sql_generator import (
 UC_REF = uc_catalog_var_ref()
 LKF_SCHEMA_REF = uc_lkf_staging_schema_var_ref()
 PIPELINE_TAG_REF = pipeline_tag_var_ref()
+RETRY_REF = pipeline_max_update_retry_attempts_var_ref()
 
 
 def _active_clients():
@@ -88,6 +90,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert dest_schema == "iPC_2025_Dev7_15350poc_1"
     assert "data_staging_options:" not in yaml_text
     assert "serverless: false" in yaml_text
+    assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
 
 
 def test_generate_yaml_uses_suffix_when_provided():
@@ -208,6 +211,23 @@ def test_table_pk_ct_status_sql_lists_active_tables():
     assert "CT_NOT_ENABLED" in sql_text
     assert tables[0].table_nm in sql_text
     assert f"INSERT INTO #table_list (table_name) VALUES" in sql_text
+
+
+def test_load_client_overrides_allows_client_nm_case_mismatch(tmp_path):
+    override_dir = tmp_path / "overrides"
+    override_dir.mkdir()
+    override_file = override_dir / "iPC_2025_Dev7_15447.json"
+    override_file.write_text(
+        '{"client_nm": "iPC_2025_Dev7_15447", "ignore": [], "extra": []}',
+        encoding="utf-8",
+    )
+
+    overrides = load_client_overrides(
+        "iPC_2025_DEV7_15447",
+        path=override_file,
+    )
+    assert overrides is not None
+    assert overrides.client_nm == "iPC_2025_Dev7_15447"
 
 
 def test_write_source_replication_sql_writes_four_files(tmp_path):

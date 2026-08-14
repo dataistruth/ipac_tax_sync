@@ -55,6 +55,9 @@ variables:
   job_tag:
     default: ipac_delta_sync
     description: Tag value applied to bundle jobs (tags.bundle)
+  pipeline_max_update_retry_attempts:
+    default: 2
+    description: Max update retries after failure for continuous Lakeflow pipelines (pipelines.numUpdateRetryAttempts)
 
 targets:
   dev:
@@ -69,6 +72,7 @@ targets:
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
+      pipeline_max_update_retry_attempts: 2
 
 
   prod:
@@ -84,4 +88,5 @@ targets:
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
+      pipeline_max_update_retry_attempts: 2
 
