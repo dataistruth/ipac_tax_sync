@@ -177,6 +177,30 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 - `generated/bundle/<client_nm>_pipeline.yml` — all `p_<client_nm>_<n>` pipelines for bundle deploy
 - `generated/schema/<client_nm>_schema.yml` — schema resource per client destination schema
 - `generated/schema/ipac_metadata_schema.yml` — metadata schema resource
+- `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
+
+### `ipac_metadata.process_log` (Delta)
+
+Shared operational log at `{uc_catalog}.{ipac_metadata_schema}.process_log` for **all** workloads:
+
+| Column | Purpose |
+|--------|---------|
+| `process_type` | `ingest`, `calc`, `transfer`, `transform`, `egress` |
+| `process_nm` | Pipeline name, calc job, transfer batch, etc. |
+| `artifact_type` | `pipeline`, `job`, `notebook` |
+| `artifact_id` | Stable resource: `pipeline_id`, job definition id, notebook path |
+| `artifact_run_id` | **Each run**: pipeline `update_id`, `job_run_id`, `task_run_id` |
+| `process_id` | Legacy column — prefers `artifact_run_id`, else `artifact_id` |
+| `client_nm` | Client when applicable |
+| `object_nm` | Table, calc module, file set |
+| `start_tm` / `end_tm` | Process window |
+| `current_status` | `RUNNING`, `SUCCESS`, `FAILED`, `HEALTHY`, `UNHEALTHY`, `IDLE`, `SKIPPED` |
+| `detail_status` | Sub-status (e.g. pipeline `update_state`) |
+| `heartbeat_age_sec` | Ingest monitor staleness |
+| `rows_read` / `rows_written` / `rows_deleted` | Calc / transfer metrics |
+| `log` | Detail text (truncated to 2000 chars) |
+
+Heartbeat monitor writes `process_type=ingest` rows each poll. Calc / transfer jobs should use `common.ops.process_log_store.build_process_log_row()` + `write_process_log_rows()`.
 - `generated/config/pipeline_names.json` — list of generated pipeline names for heartbeat/restart jobs
 - `src/<client_nm>/pipelines/p_<client_nm>_<n>.yml` — one file per pipeline batch
 - `src/<client_nm>/sql/<client_nm>_enable_ct.sql` — enable CT on PK tables (skips non-PK; CDC not used)
@@ -194,13 +218,13 @@ databricks bundle deploy --select pipelines.p_client_a_1,pipelines.p_client_a_2
 
 Bundle also defines two jobs under `resources/jobs/pipeline_heartbeat_jobs.yml`:
 
-- `pipeline_heartbeat_monitor` — checks generated continuous pipelines (`p_*`) heartbeat/state and fails (email alert) when unhealthy.
+- `pipeline_heartbeat_monitor` — **continuous** job (UNPAUSED) that polls `p_*` pipeline status every `heartbeat_interval_sec` and fails (email alert) when unhealthy.
 - `pipeline_failed_restart` — restarts failed continuous generated pipelines.
 
 Both jobs run as **serverless notebook tasks** (no Spark session, no pip dependencies).
 Notebooks: `src/common/notebooks/monitor_pipeline_heartbeat.py` and `restart_failed_pipelines.py`.
 Shared REST logic: `src/common/ops/pipeline_job_ops.py` (stdlib only, auth via `dbutils`).
-Monitor uses `variables.heartbeat_interval_sec` to decide staleness.
+Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and logs `update_state`, heartbeat age, and continuous flag. Uses `variables.heartbeat_interval_sec` as both poll sleep interval and stale threshold.
 
 ## Onboard a new client
 

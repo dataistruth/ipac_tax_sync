@@ -11,7 +11,14 @@ from util.bundle_config import (
     uc_catalog_var_ref,
     uc_lkf_staging_schema_var_ref,
 )
-from util.config_loader import get_client, load_client_overrides, load_common_tables, load_client_registry, load_cluster_config
+from util.cluster_tiers import expected_job_tier_for_size
+from util.config_loader import (
+    get_client,
+    load_client_overrides,
+    load_client_registry,
+    load_cluster_config,
+    load_common_tables,
+)
 from util.pipeline_generator import (
     chunk_tables,
     generate_client_pipelines_yaml,
@@ -95,12 +102,15 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert dest_schema == "iPC_2025_Dev7_15350poc_1"
     assert "data_staging_options:" not in yaml_text
     assert "serverless: false" in yaml_text
+    assert "continuous: true" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
     assert f"node_type_id: {NODE_TYPE_REF}" in yaml_text
     assert f"spark_version: {SPARK_REF}" in yaml_text
-    assert "min_workers: 2" in yaml_text
-    assert "max_workers: 4" in yaml_text
+    cluster_cfg = load_cluster_config()
+    tier = cluster_cfg.tiers[expected_job_tier_for_size(client.client_size)]
+    assert f"min_workers: {tier.min_workers}" in yaml_text
+    assert f"max_workers: {tier.max_workers}" in yaml_text
 
 
 def test_generate_yaml_uses_j3_for_large_client():

@@ -3,7 +3,10 @@
 from common.ops.pipeline_job_ops import (
     _filter_pipelines,
     _list_generated_pipelines,
+    _pipeline_health,
     _strip_bundle_dev_prefix,
+    describe_pipeline_status,
+    run_monitor_loop,
 )
 
 
@@ -44,3 +47,81 @@ def test_filter_pipelines_matches_logical_name():
     filtered = _filter_pipelines(pipelines, configured)
     assert len(filtered) == 2
     assert {p["pipeline_id"] for p in filtered} == {"1", "2"}
+
+
+class _DetailClient:
+    def __init__(self, details: dict[str, dict]) -> None:
+        self._details = details
+
+    def get(self, path: str) -> dict:
+        if path == "/api/2.0/pipelines":
+            return {
+                "statuses": [
+                    {"name": "p_test_1", "pipeline_id": "pid-1"},
+                ]
+            }
+        if path.startswith("/api/2.0/pipelines/"):
+            pid = path.rsplit("/", 1)[-1]
+            return self._details.get(pid, {})
+        raise AssertionError(path)
+
+
+def test_describe_pipeline_status_includes_update_state():
+    detail = {
+        "spec": {"continuous": True},
+        "state": {
+            "latest_update": {
+                "state": "RUNNING",
+                "update_id": "abc",
+                "start_time": 1_700_000_000_000,
+            }
+        },
+    }
+    text = describe_pipeline_status(detail)
+    assert "continuous=True" in text
+    assert "update_state=RUNNING" in text
+    assert "update_id=abc" in text
+
+
+def test_pipeline_health_detects_stale_heartbeat():
+    import time
+
+    old_ms = int((time.time() - 2000) * 1000)
+    client = _DetailClient(
+        {
+            "pid-1": {
+                "spec": {"continuous": True},
+                "state": {"latest_update": {"state": "RUNNING", "start_time": old_ms}},
+            }
+        }
+    )
+    ok, reason = _pipeline_health(client, "pid-1", heartbeat_interval_sec=900)
+    assert not ok
+    assert "UNHEALTHY" in reason
+    assert "stale heartbeat" in reason
+
+
+def test_run_monitor_loop_single_iteration(tmp_path):
+    import time
+
+    now_ms = int(time.time() * 1000)
+    client = _DetailClient(
+        {
+            "pid-1": {
+                "spec": {"continuous": True},
+                "state": {"latest_update": {"state": "RUNNING", "start_time": now_ms}},
+            }
+        }
+    )
+    # Patch DatabricksRestClient in run_monitor path
+    from common.ops import pipeline_job_ops
+
+    original = pipeline_job_ops.DatabricksRestClient
+    pipeline_job_ops.DatabricksRestClient = lambda *a, **k: client  # type: ignore[misc]
+    registry = tmp_path / "pipeline_names.json"
+    registry.write_text('{"pipelines": ["p_test_1"]}', encoding="utf-8")
+    try:
+        rc = run_monitor_loop("p_", 900, str(registry), max_iterations=1)
+        assert rc == 0
+    finally:
+        pipeline_job_ops.DatabricksRestClient = original

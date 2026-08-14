@@ -8,7 +8,7 @@
     "src_db_nm": "iPC_2025_Dev7_15350",
     "src_db_schema": "dbo",
     "uc_conn_nm": "iPC_2025_Dev7_15350",
-    "client_size": "small",
+    "client_size": "medium",
     "cluster_tier": "j2"
   },
   {
@@ -20,7 +20,7 @@
     "src_db_nm": "iPC_2025_Dev7_15447",
     "src_db_schema": "dbo",
     "uc_conn_nm": "iPC_2025_Dev7_15447",
-    "client_size": "small",
+    "client_size": "medium",
     "cluster_tier": "j2"
   },
   {
@@ -32,9 +32,8 @@
     "src_db_nm": "iPC_2025_Dev7_15347",
     "src_db_schema": "dbo",
     "uc_conn_nm": "iPC_2025_Dev7_15447",
-    "client_size": "small",
+    "client_size": "medium",
     "cluster_tier": "j2"
   }
 ]
-
 

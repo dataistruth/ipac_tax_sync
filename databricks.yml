@@ -42,7 +42,7 @@ variables:
     description: Databricks group granted manage/view access on generated pipelines and jobs
   heartbeat_interval_sec:
     default: 900
-    description: Max allowed heartbeat age (seconds) for continuous generated pipelines
+    description: Poll interval (seconds) for heartbeat monitor job and max allowed heartbeat age for continuous pipelines
   heartbeat_job_alert_mail:
     default: mukessingh@deloitte.com
     description: Email recipient for heartbeat monitor/restart job failures

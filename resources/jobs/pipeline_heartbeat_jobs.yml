@@ -12,10 +12,10 @@ resources:
       email_notifications:
         on_failure:
           - ${var.heartbeat_job_alert_mail}
-      schedule:
-        quartz_cron_expression: "0 */10 * * * ?"
-        timezone_id: "UTC"
-        pause_status: "UNPAUSED"
+      # Continuous job polls pipeline status every heartbeat_interval_sec (see notebook loop).
+      # pause_status UNPAUSED overrides dev-mode default pause on triggers.
+      continuous:
+        pause_status: UNPAUSED
       tasks:
         - task_key: monitor_continuous_pipelines
           notebook_task:
@@ -24,6 +24,8 @@ resources:
               name_prefix: p_
               heartbeat_interval_sec: ${var.heartbeat_interval_sec}
               pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
+              uc_catalog: ${var.uc_catalog}
+              ipac_metadata_schema: ${var.ipac_metadata_schema}
 
     pipeline_failed_restart:
       name: ipac_delta_sync_pipeline_failed_restart
