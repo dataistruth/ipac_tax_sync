@@ -22,5 +22,19 @@
     "uc_conn_nm": "iPC_2025_Dev7_15447",
     "client_size": "medium",
     "cluster_tier": "j2"
+  },
+  {
+    "client_nm": "iPC_2025_Dev7_15347",
+    "desc": "iPC_2025_Dev7_15347 Lakeflow ingestion",
+    "volume": "",
+    "priority": 100,
+    "is_active": true,
+    "src_db_nm": "iPC_2025_Dev7_15347",
+    "src_db_schema": "dbo",
+    "uc_conn_nm": "iPC_2025_Dev7_15447",
+    "client_size": "medium",
+    "cluster_tier": "j2"
   }
 ]
+
+
