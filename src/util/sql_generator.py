@@ -43,16 +43,16 @@ def _table_list_setup(schema_literal: str, values: list[str]) -> list[str]:
     ]
 
 
-def generate_enable_ct_or_cdc_sql(
+def generate_enable_ct_sql(
     client: ClientEntry,
     tables: list[EffectiveTable],
 ) -> str:
-    """Enable CT when table has PK (and CT off); enable CDC when no PK (idempotent)."""
+    """Enable CT on active tables that have a PK (skip non-PK; CDC not used)."""
     values = _table_list_values_sql(tables)
     db_ident = _sql_ident(client.src_db_nm)
     lines = _client_sql_header(
         client,
-        "enable CT (PK tables) or CDC (non-PK tables) — run grant scripts after this",
+        "enable CT on PK tables (skips non-PK) — run grant_ct_access.sql after this",
     )
     lines.extend(
         [
@@ -65,14 +65,8 @@ def generate_enable_ct_or_cdc_sql(
             ),
             "    PRINT 'Database Change Tracking enabled.';",
             "END",
-            "GO",
-            "",
-            "-- Database-level CDC",
-            "IF (SELECT is_cdc_enabled FROM sys.databases WHERE database_id = DB_ID()) = 0",
-            "BEGIN",
-            "    EXEC sys.sp_cdc_enable_db;",
-            "    PRINT 'Database CDC enabled.';",
-            "END",
+            "ELSE",
+            "    PRINT 'Database Change Tracking already enabled.';",
             "GO",
             "",
             "SET NOCOUNT ON;",
@@ -99,9 +93,7 @@ def generate_enable_ct_or_cdc_sql(
             "    SET @object_id = OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(@table));",
             "",
             "    IF @object_id IS NULL",
-            "    BEGIN",
             "        PRINT N'SKIP (missing): ' + @schema + N'.' + @table;",
-            "    END",
             "    ELSE",
             "    BEGIN",
             "        SET @has_pk = CASE",
@@ -111,35 +103,18 @@ def generate_enable_ct_or_cdc_sql(
             "            ) THEN 1 ELSE 0",
             "        END;",
             "",
-            "        IF @has_pk = 1",
-            "        BEGIN",
-            "            IF NOT EXISTS (",
-            "                SELECT 1 FROM sys.change_tracking_tables WHERE object_id = @object_id",
-            "            )",
-            "            BEGIN",
-            "                SET @sql = N'ALTER TABLE ' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table)",
-            "                    + N' ENABLE CHANGE_TRACKING WITH (TRACK_COLUMNS_UPDATED = ON);';",
-            "                EXEC sp_executesql @sql;",
-            "                PRINT N'CT enabled: ' + @schema + N'.' + @table;",
-            "            END",
-            "            ELSE",
-            "                PRINT N'CT already enabled: ' + @schema + N'.' + @table;",
-            "        END",
+            "        IF @has_pk = 0",
+            "            PRINT N'SKIP (no PK — CT only, CDC not used): ' + @schema + N'.' + @table;",
+            "        ELSE IF EXISTS (",
+            "            SELECT 1 FROM sys.change_tracking_tables WHERE object_id = @object_id",
+            "        )",
+            "            PRINT N'CT already enabled: ' + @schema + N'.' + @table;",
             "        ELSE",
             "        BEGIN",
-            "            IF NOT EXISTS (",
-            "                SELECT 1 FROM cdc.change_tables WHERE source_object_id = @object_id",
-            "            )",
-            "            BEGIN",
-            "                EXEC sys.sp_cdc_enable_table",
-            "                    @source_schema = @schema,",
-            "                    @source_name   = @table,",
-            "                    @role_name     = NULL,",
-            "                    @supports_net_changes = 0;",
-            "                PRINT N'CDC enabled: ' + @schema + N'.' + @table;",
-            "            END",
-            "            ELSE",
-            "                PRINT N'CDC already enabled: ' + @schema + N'.' + @table;",
+            "            SET @sql = N'ALTER TABLE ' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table)",
+            "                + N' ENABLE CHANGE_TRACKING WITH (TRACK_COLUMNS_UPDATED = ON);';",
+            "            EXEC sp_executesql @sql;",
+            "            PRINT N'CT enabled: ' + @schema + N'.' + @table;",
             "        END",
             "    END",
             "",
@@ -149,7 +124,7 @@ def generate_enable_ct_or_cdc_sql(
             "CLOSE table_cursor;",
             "DEALLOCATE table_cursor;",
             "",
-            "PRINT 'Done. Run grant_ct_access.sql and grant_cdc_access.sql next.';",
+            "PRINT 'Done. Run grant_ct_access.sql next.';",
             "GO",
             "",
         ]
@@ -488,15 +463,15 @@ def generate_table_pk_ct_status_sql(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_enable_ct_or_cdc_sql(
+def write_enable_ct_sql(
     client: ClientEntry,
     tables: list[EffectiveTable],
     sql_dir: Path | str,
 ) -> str:
     out_dir = Path(sql_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{client.client_nm}_enable_ct_or_cdc.sql"
-    out_file.write_text(generate_enable_ct_or_cdc_sql(client, tables), encoding="utf-8")
+    out_file = out_dir / f"{client.client_nm}_enable_ct.sql"
+    out_file.write_text(generate_enable_ct_sql(client, tables), encoding="utf-8")
     return str(out_file)
 
 
@@ -550,8 +525,8 @@ def write_source_replication_sql(
     sql_dir: Path | str,
     principal_placeholder: str = "<KEEP_USER_ID>",
 ) -> tuple[str, str, str, str]:
-    """Write enable + CT grants + CDC grants + PK/CT status check (4 scripts total)."""
-    enable_path = write_enable_ct_or_cdc_sql(client, tables, sql_dir)
+    """Write enable CT + CT grants + CDC grants + PK/CT status check (4 scripts total)."""
+    enable_path = write_enable_ct_sql(client, tables, sql_dir)
     ct_grant_path = write_ct_grants_sql(
         client, tables, sql_dir, principal_placeholder=principal_placeholder
     )
