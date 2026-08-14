@@ -63,17 +63,13 @@ def _format_object_lines(
     ]
 
     clustering = _parse_lq_key(table.lq_key) if table.has_cluster_by else []
-    needs_table_config = clustering or table.scd_type == 2
-    needs_table_config = needs_table_config or table.recon_type != 1
-    if needs_table_config:
-        lines.append("              table_configuration:")
-        if clustering:
-            cols = ", ".join(clustering)
-            lines.append(f"                clustering_columns: [{cols}]")
-        if table.scd_type == 2:
-            lines.append("                scd_type: 2")
-        if table.recon_type != 1:
-            lines.append(f"                recon_type: {table.recon_type}")
+    lines.append("              table_configuration:")
+    lines.append(f"                scd_type: {table.scd_type}")
+    if clustering:
+        cols = ", ".join(clustering)
+        lines.append(f"                clustering_columns: [{cols}]")
+    if table.recon_type != 1:
+        lines.append(f"                recon_type: {table.recon_type}")
     return lines
 
 
