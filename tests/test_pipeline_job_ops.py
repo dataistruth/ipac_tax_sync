@@ -133,6 +133,105 @@ def test_describe_pipeline_status_string_top_level_state():
     assert "update_id=abc" in text
 
 
+def test_describe_pipeline_status_prefers_active_update_over_stale_canceled():
+    """When latest_update is canceled but latest_updates has newer RUNNING, pick RUNNING."""
+    import time
+
+    canceled_ms = int((time.time() - 3600) * 1000)
+    running_ms = int(time.time() * 1000)
+    detail = {
+        "spec": {"continuous": True},
+        "state": "RUNNING",
+        "latest_update": {
+            "state": "CANCELED",
+            "update_id": "old-canceled",
+            "start_time": canceled_ms,
+            "end_time": canceled_ms + 1000,
+        },
+        "latest_updates": [
+            {
+                "state": "CANCELED",
+                "update_id": "old-canceled",
+                "start_time": canceled_ms,
+                "end_time": canceled_ms + 1000,
+            },
+            {
+                "state": "RUNNING",
+                "update_id": "new-running",
+                "start_time": running_ms,
+            },
+        ],
+    }
+    text = describe_pipeline_status(detail)
+    assert "update_state=RUNNING" in text
+    assert "update_id=new-running" in text
+    assert "old-canceled" not in text
+
+
+def test_pipeline_health_healthy_when_active_update_after_canceled():
+    import time
+
+    from common.ops import pipeline_job_ops
+
+    canceled_ms = int((time.time() - 3600) * 1000)
+    running_ms = int(time.time() * 1000)
+    client = _DetailClient(
+        {
+            "pid-1": {
+                "spec": {"continuous": True},
+                "state": "RUNNING",
+                "latest_update": {
+                    "state": "CANCELED",
+                    "update_id": "old-canceled",
+                    "start_time": canceled_ms,
+                    "end_time": canceled_ms + 1000,
+                },
+                "latest_updates": [
+                    {
+                        "state": "CANCELED",
+                        "update_id": "old-canceled",
+                        "start_time": canceled_ms,
+                        "end_time": canceled_ms + 1000,
+                    },
+                    {
+                        "state": "RUNNING",
+                        "update_id": "new-running",
+                        "start_time": running_ms,
+                    },
+                ],
+            }
+        }
+    )
+    ok, reason = _pipeline_health(client, "pid-1", heartbeat_interval_sec=900)
+    assert ok
+    assert "healthy" in reason
+    assert "update_state=RUNNING" in reason
+
+
+def test_pipeline_health_unhealthy_when_only_canceled_updates():
+    import time
+
+    canceled_ms = int((time.time() - 60) * 1000)
+    client = _DetailClient(
+        {
+            "pid-1": {
+                "spec": {"continuous": True},
+                "state": "RUNNING",
+                "latest_update": {
+                    "state": "CANCELED",
+                    "update_id": "only-canceled",
+                    "start_time": canceled_ms,
+                    "end_time": canceled_ms + 1000,
+                },
+            }
+        }
+    )
+    ok, reason = _pipeline_health(client, "pid-1", heartbeat_interval_sec=900)
+    assert not ok
+    assert "UNHEALTHY" in reason
+    assert "update_state=CANCELED" in reason
+
+
 def test_describe_pipeline_status_includes_update_state():
     detail = {
         "spec": {"continuous": True},

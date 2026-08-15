@@ -250,20 +250,113 @@ def _pipeline_state_block(detail: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _latest_update_block(detail: dict[str, Any]) -> dict[str, Any]:
+def _update_timestamp_ms(update: dict[str, Any]) -> int:
+    candidates = [
+        update.get("end_time"),
+        update.get("start_time"),
+        update.get("update_start_time"),
+        update.get("creation_time"),
+        update.get("timestamp"),
+    ]
+    values = [int(v) for v in candidates if isinstance(v, (int, float))]
+    return max(values) if values else 0
+
+
+def _collect_update_blocks(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    """Gather update dicts from all API fields that may carry pipeline run state."""
+    blocks: list[dict[str, Any]] = []
     state = _pipeline_state_block(detail)
-    latest = state.get("latest_update")
-    if isinstance(latest, dict):
-        return latest
-    root = detail.get("latest_update")
-    if isinstance(root, dict):
-        return root
+    for candidate in (state.get("latest_update"), detail.get("latest_update")):
+        if isinstance(candidate, dict):
+            blocks.append(candidate)
     for updates in (state.get("latest_updates"), detail.get("latest_updates")):
-        if isinstance(updates, list) and updates:
-            tail = updates[-1]
-            if isinstance(tail, dict):
-                return tail
-    return {}
+        if isinstance(updates, list):
+            for item in updates:
+                if isinstance(item, dict):
+                    blocks.append(item)
+    return blocks
+
+
+def _dedupe_updates(updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    for update in updates:
+        update_id = str(update.get("update_id") or "").strip()
+        key = update_id if update_id else f"__idx_{id(update)}"
+        existing = by_key.get(key)
+        if existing is None or _update_timestamp_ms(update) >= _update_timestamp_ms(existing):
+            by_key[key] = update
+    return list(by_key.values())
+
+
+def _pick_relevant_update(updates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Prefer the newest in-progress update over older canceled/failed runs."""
+    if not updates:
+        return {}
+    active = [
+        u
+        for u in updates
+        if str(u.get("state", "")).upper() in ACTIVE_UPDATE_STATES
+    ]
+    if active:
+        return max(active, key=_update_timestamp_ms)
+    return max(updates, key=_update_timestamp_ms)
+
+
+def _debug_pick_latest_update(
+    detail: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    chosen: dict[str, Any],
+) -> None:
+    # #region agent log
+    try:
+        payload = {
+            "sessionId": "588d1c",
+            "hypothesisId": "H1",
+            "location": "pipeline_job_ops.py:_latest_update_block",
+            "message": "latest update selection",
+            "data": {
+                "pipeline_state": _pipeline_state_label(detail),
+                "candidate_count": len(candidates),
+                "candidates": [
+                    {
+                        "update_id": str(u.get("update_id") or ""),
+                        "state": str(u.get("state") or ""),
+                        "ts_ms": _update_timestamp_ms(u),
+                    }
+                    for u in candidates
+                ],
+                "chosen": {
+                    "update_id": str(chosen.get("update_id") or ""),
+                    "state": str(chosen.get("state") or ""),
+                    "ts_ms": _update_timestamp_ms(chosen),
+                },
+            },
+            "timestamp": int(time.time() * 1000),
+            "runId": "pre-fix",
+        }
+        with open(
+            "/Users/mukesh.singh/spark/deloitte/.cursor/debug-588d1c.log",
+            "a",
+            encoding="utf-8",
+        ) as fh:
+            fh.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+    if len(candidates) > 1:
+        print(
+            f"[DEBUG-588d1c] latest update pick: chosen="
+            f"{chosen.get('update_id')} state={chosen.get('state')} "
+            f"from {len(candidates)} candidate(s)"
+        )
+    # #endregion
+
+
+def _latest_update_block(detail: dict[str, Any]) -> dict[str, Any]:
+    candidates = _dedupe_updates(_collect_update_blocks(detail))
+    chosen = _pick_relevant_update(candidates)
+    if candidates:
+        _debug_pick_latest_update(detail, candidates, chosen)
+    return chosen
 
 
 def _pipeline_state_label(detail: dict[str, Any]) -> str:
