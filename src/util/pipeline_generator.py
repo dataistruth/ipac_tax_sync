@@ -46,6 +46,13 @@ def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None) 
     return cluster_config.tiers.get(tier_key)
 
 
+def _yaml_scd_type(scd_type: int) -> str:
+    """Lakeflow ingestion table_configuration scd enum (not numeric 1/2)."""
+    if scd_type == 2:
+        return "SCD_TYPE_2"
+    return "SCD_TYPE_1"
+
+
 def _format_object_lines(
     table: EffectiveTable,
     client: ClientEntry,
@@ -65,7 +72,7 @@ def _format_object_lines(
 
     clustering = _parse_lq_key(table.lq_key) if table.has_cluster_by else []
     lines.append("              table_configuration:")
-    lines.append(f"                scd_type: {table.scd_type}")
+    lines.append(f"                scd_type: {_yaml_scd_type(table.scd_type)}")
     if clustering:
         cols = ", ".join(clustering)
         lines.append(f"                clustering_columns: [{cols}]")

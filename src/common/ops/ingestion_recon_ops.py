@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
+
+from common.ops.pipeline_names import load_pipeline_names, normalize_pipeline_key
 
 from common.ops.lakeflow_event_ops import (
     aggregate_flow_metrics,
@@ -32,18 +31,7 @@ from common.ops.recon_store import (
     write_flow_summary_rows,
     write_recon_ready_rows,
 )
-from common.ops.source_cdc_ops import run_source_cdc_count
-
-
-def load_pipeline_names(path: str | None) -> list[str]:
-    if not path:
-        return []
-    file = Path(path)
-    if not file.exists():
-        raise FileNotFoundError(f"pipeline names file not found: {path}")
-    payload = json.loads(file.read_text(encoding="utf-8"))
-    names = payload.get("pipelines", []) if isinstance(payload, dict) else []
-    return [str(n) for n in names if str(n).strip()]
+from common.ops.source_ct_ops import run_source_ct_count
 
 
 def table_configs_from_effective(
@@ -168,7 +156,7 @@ def run_pipeline_recon(
 
         source_count: int | None = None
         if summary.recon_type in (2, 3):
-            source_count = run_source_cdc_count(
+            source_count = run_source_ct_count(
                 spark,
                 src_catalog,
                 src_schema,
@@ -287,10 +275,11 @@ def build_contexts_for_client(
     src_schema = client.src_db_schema or "dbo"
     out: list[tuple[Any, str, str]] = []
     for key in pipeline_keys:
-        if not key.startswith("p_"):
+        pipeline_key = normalize_pipeline_key(key)
+        if not pipeline_key.startswith("p_"):
             continue
-        if client.client_nm not in key:
+        if client.client_nm not in pipeline_key:
             continue
-        ctx = build_pipeline_recon_context(key, table_cfgs)
+        ctx = build_pipeline_recon_context(pipeline_key, table_cfgs)
         out.append((ctx, src_catalog, src_schema))
     return out

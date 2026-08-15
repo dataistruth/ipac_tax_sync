@@ -46,12 +46,19 @@ if src_root not in sys.path:
     sys.path.insert(0, src_root)
 
 from common.ops.pipeline_job_ops import configure_dbutils, run_monitor_loop
+from common.ops.pipeline_names import load_pipeline_names
 from common.ops.process_log_store import (
     ingest_log_rows_from_poll_snapshots,
     write_process_log_rows,
 )
 
 configure_dbutils(dbutils)
+
+if pipeline_names_file:
+    monitored = load_pipeline_names(pipeline_names_file)
+    print(f"monitored pipeline keys ({len(monitored)}): {monitored}")
+else:
+    print("monitored pipeline keys: (prefix scan only, no pipeline_names_file)")
 
 
 def _log_poll_to_delta(snapshots):

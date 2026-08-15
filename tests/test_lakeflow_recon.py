@@ -12,10 +12,9 @@ from common.ops.lakeflow_event_ops import (
     TableReconConfig,
 )
 from common.ops.recon_store import ingest_event_log_table_name
-from common.ops.source_cdc_ops import (
-    build_cdc_count_sql,
-    build_federated_cdc_count_sql,
-    default_capture_instance,
+from common.ops.source_ct_ops import (
+    build_ct_count_sql,
+    build_federated_ct_count_sql,
 )
 
 
@@ -162,15 +161,16 @@ def test_resolve_table_from_flow_name():
     assert resolve_table_from_flow_name("dbo_CustomImportDetail_flow", cfgs) == "CustomImportDetail"
 
 
-def test_cdc_count_sql_uses_operations():
+def test_ct_count_sql_uses_changetable_operations():
     start = _ts(0)
     end = _ts(10)
-    sql = build_cdc_count_sql("dbo", "Entity", None, start, end, recon_type=2)
-    assert "__$operation IN (1, 2, 4)" in sql
-    assert default_capture_instance("dbo", "Entity") in sql
+    sql = build_ct_count_sql("dbo", "Entity", start, end, recon_type=2)
+    assert "CHANGETABLE(CHANGES dbo.Entity, 0)" in sql
+    assert "SYS_CHANGE_OPERATION IN ('I', 'U', 'D')" in sql
+    assert "sys.dm_tran_commit_time" in sql
 
-    sql3 = build_cdc_count_sql("dbo", "Entity", None, start, end, recon_type=3)
-    assert "__$operation IN (2, 4)" in sql3
+    sql3 = build_ct_count_sql("dbo", "Entity", start, end, recon_type=3)
+    assert "SYS_CHANGE_OPERATION IN ('I', 'U')" in sql3
 
-    fed = build_federated_cdc_count_sql("src_cat", "dbo", "Entity", None, start, end, 2)
-    assert "src_cat.cdc." in fed
+    fed = build_federated_ct_count_sql("src_cat", "dbo", "Entity", start, end, 2)
+    assert "CHANGETABLE(CHANGES src_cat.dbo.Entity, 0)" in fed

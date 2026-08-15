@@ -293,7 +293,7 @@ def evaluate_recon(
             summary,
             recon_status="FAIL",
             source_change_rows=None,
-            recon_message="source CDC count unavailable for recon_type 2/3",
+            recon_message="source CT count unavailable for recon_type 2/3",
         )
 
     ingest_metric = summary.total_change_rows if summary.recon_type == 2 else summary.total_upserted

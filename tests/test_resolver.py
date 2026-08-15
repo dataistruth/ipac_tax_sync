@@ -117,7 +117,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")
         snippet = yaml_text[idx:idx + 200]
-        assert "scd_type: 1" in snippet
+        assert "scd_type: SCD_TYPE_1" in snippet
 
 
 def test_generate_yaml_uses_j3_for_large_client():

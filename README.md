@@ -79,7 +79,7 @@ Raw and staging share one schema per client: `{uc_catalog}.{client_nm}{dest_sche
 | `is_active` | Include in default client set when true |
 | `select_cols` | Column list; empty = select all (`*`) |
 | `scd_type` | `1` (default overwrite) or `2` (history / merge) |
-| `recon_type` | Ingestion reconciliation mode: `1` = metrics-only PASS on flow COMPLETED (no SQL compare); `2` = compare `upserted+deleted` vs SQL Server CDC changes; `3` = compare `upserted` vs SQL Server CDC inserts+updates |
+| `recon_type` | Ingestion reconciliation mode: `1` = metrics-only PASS on flow COMPLETED (no SQL compare); `2` = compare `upserted+deleted` vs SQL Server **Change Tracking** (I+U+D); `3` = compare `upserted` vs CT inserts+updates (I+U) |
 
 ### `client_overrides/<client_nm>.json`
 
@@ -218,8 +218,8 @@ databricks bundle deploy --select pipelines.p_client_a_1,pipelines.p_client_a_2
 
 Bundle also defines two jobs under `resources/jobs/pipeline_heartbeat_jobs.yml`:
 
-- `pipeline_heartbeat_monitor` — **continuous** job (UNPAUSED) that polls `p_*` pipeline status every `heartbeat_interval_sec` and fails (email alert) when unhealthy.
-- `pipeline_failed_restart` — restarts failed continuous generated pipelines.
+- `j_ipac_delta_sync_pipeline_heartbeat_monitor` — **continuous** job (UNPAUSED) that polls `p_*` pipeline status every `heartbeat_interval_sec` and fails (email alert) when unhealthy.
+- `j_ipac_delta_sync_pipeline_failed_restart` — restarts failed continuous generated pipelines.
 
 Both jobs run as **serverless notebook tasks** (no Spark session, no pip dependencies).
 Notebooks: `src/common/notebooks/monitor_pipeline_heartbeat.py` and `restart_failed_pipelines.py`.
@@ -228,7 +228,7 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 ### Ingestion flow metrics reconciliation
 
-Job `ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls published MANAGED_INGESTION event logs (`ingest_events_p_*` in `{uc_catalog}.{ipac_metadata_schema}`), aggregates per-table `flow_progress` when status = `COMPLETED`, and writes:
+Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls published MANAGED_INGESTION event logs (`ingest_events_p_*` in `{uc_catalog}.{ipac_metadata_schema}`), aggregates per-table `flow_progress` when status = `COMPLETED`, and writes:
 
 - `lakeflow_flow_metrics` — raw event metrics (merge by `event_id`)
 - `lakeflow_flow_summary` — per `(update_id, flow_name)` aggregates
@@ -237,7 +237,7 @@ Job `ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls
 
 Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
 
-Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_cdc_ops.py`, `recon_store.py`.
+Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_ct_ops.py`, `recon_store.py`.
 
 Generated pipelines include `event_log` publishing — regenerate and redeploy after upgrading:
 

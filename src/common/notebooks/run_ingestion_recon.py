@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC Polls published MANAGED_INGESTION event logs (`ingest_events_p_*`),
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
-# MAGIC optionally compares SQL Server CDC for `recon_type` 2/3,
+# MAGIC optionally compares SQL Server Change Tracking for `recon_type` 2/3,
 # MAGIC writes `recon_ready` + `process_log` on PASS.
 
 # COMMAND ----------
@@ -57,7 +57,11 @@ pipeline_keys = load_pipeline_names(pipeline_names_file) if pipeline_names_file 
 if not pipeline_keys:
     raise ValueError("pipeline_names_file is required for ingestion recon")
 
-client_names = sorted({client_nm_from_ingest_pipeline(k) for k in pipeline_keys if client_nm_from_ingest_pipeline(k)})
+print(f"pipeline_keys ({len(pipeline_keys)}): {pipeline_keys}")
+
+client_names = sorted(
+    {client_nm_from_ingest_pipeline(k) for k in pipeline_keys if client_nm_from_ingest_pipeline(k)}
+)
 if not client_names:
     raise ValueError(f"No clients resolved from pipeline keys: {pipeline_keys}")
 

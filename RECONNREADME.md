@@ -1,6 +1,8 @@
 # Ingestion flow metrics reconciliation
 
-Standalone guide for downstream Lakeflow **MANAGED_INGESTION** reconciliation in `ipac_delta_sync`. This covers per-table `flow_progress` metrics from published pipeline event logs, optional SQL Server CDC compare, and calc gating via `recon_ready`.
+Standalone guide for downstream Lakeflow **MANAGED_INGESTION** reconciliation in `ipac_delta_sync`. This covers per-table `flow_progress` metrics from published pipeline event logs, optional SQL Server **Change Tracking (CT)** compare, and calc gating via `recon_ready`.
+
+Lakeflow pipelines use `connector_type: CDC` in YAML — that is the Lakeflow Connect connector name. **Source SQL Server tables use Change Tracking (CT)** on PK tables (`*_enable_ct.sql`), not CDC change tables.
 
 For general repo setup, see [README.md](README.md).
 
@@ -10,7 +12,7 @@ For general repo setup, see [README.md](README.md).
 |----------|----------------|
 | Downstream ingestion pipeline event logs | Gateway / `INGESTION_GATEWAY` event logs |
 | Per-table flow when `flow_progress.status = COMPLETED` | Comparing flow deltas to `COUNT(*)` on destination |
-| `recon_type` 1 = metrics-only; 2/3 = SQL CDC compare | Calc job implementation (`ipac-sdt-calc`) |
+| `recon_type` 1 = metrics-only; 2/3 = SQL **CT** compare | Calc job implementation (`ipac-sdt-calc`) |
 | `recon_ready` + `process_log` as producers | Native table-update triggers |
 
 ## Architecture
@@ -22,7 +24,7 @@ MANAGED_INGESTION pipeline (continuous)
 Published UC event log  ingest_events_p_<client>_<n>
         │
         ▼
-ingestion_recon_monitor job (poll every recon_poll_interval_sec)
+j_ipac_delta_sync_ingestion_recon_monitor job (poll every recon_poll_interval_sec)
         │
         ├── MERGE → lakeflow_flow_metrics
         ├── APPEND → lakeflow_flow_summary
@@ -33,19 +35,19 @@ ingestion_recon_monitor job (poll every recon_poll_interval_sec)
 ipac-sdt-calc reads recon_ready / process_log
 ```
 
-**Separate from heartbeat:** `pipeline_heartbeat_monitor` checks pipeline health (RUNNING, stale heartbeat). Recon checks **per-table flow completion and row metrics**.
+**Separate from heartbeat:** `j_ipac_delta_sync_pipeline_heartbeat_monitor` checks pipeline health (RUNNING, stale heartbeat). Recon checks **per-table flow completion and row metrics**.
 
 ## `recon_type` (per table in `common_tables.json`)
 
 | Value | Meaning | PASS condition |
 |-------|---------|----------------|
 | `1` | Metrics only | Flow reaches `COMPLETED`; no SQL compare |
-| `2` | Full change rows | `total_upserted + total_deleted` = SQL CDC inserts + updates + deletes in flow time window |
-| `3` | Upserts only | `total_upserted` = SQL CDC inserts + updates in flow time window |
+| `2` | Full change rows | `total_upserted + total_deleted` = CT **I + U + D** in flow time window |
+| `3` | Upserts only | `total_upserted` = CT **I + U** in flow time window |
 
 Override per table in `config/common/client_overrides/<client_nm>.json` (`extra` / same fields as common tables).
 
-**Do not** compare CDC deltas to current table row count. Compare like-for-like change metrics only.
+**Do not** compare CT/ingest deltas to current table row count. Compare like-for-like change metrics only.
 
 ## Recon batch boundary
 
@@ -111,7 +113,7 @@ One row per completed flow aggregate.
 | `first_event_time`, `last_event_time`, `metric_duration_sec` | Window |
 | `final_flow_status` | Must be `COMPLETED` |
 | `recon_status` | `PENDING`, `PASS`, `FAIL`, `SKIPPED` |
-| `source_change_rows` | SQL CDC count when `recon_type` 2/3 |
+| `source_change_rows` | SQL Server CT count when `recon_type` 2/3 |
 | `recon_message` | PASS/FAIL detail |
 
 ### `recon_ready`
@@ -156,7 +158,7 @@ DDL is generated on `generate`:
 
 ## Recon job
 
-**Job name:** `ipac_delta_sync_ingestion_recon_monitor`  
+**Job name:** `j_ipac_delta_sync_ingestion_recon_monitor`  
 **Definition:** `resources/jobs/ingestion_recon_jobs.yml`  
 **Notebook:** `src/common/notebooks/run_ingestion_recon.py`
 
@@ -177,7 +179,7 @@ Deploy:
 databricks bundle deploy
 ```
 
-Unpause or confirm continuous trigger for `ingestion_recon_monitor`.
+Unpause or confirm continuous trigger for `j_ipac_delta_sync_ingestion_recon_monitor`.
 
 ## Source code map
 
@@ -185,24 +187,23 @@ Unpause or confirm continuous trigger for `ingestion_recon_monitor`.
 |------|------|
 | `src/common/ops/recon_store.py` | DDL, dataclasses, Delta writes |
 | `src/common/ops/lakeflow_event_ops.py` | Event extract SQL, aggregation, `evaluate_recon` |
-| `src/common/ops/source_cdc_ops.py` | SQL Server CDC count SQL (`recon_type` 2/3) |
+| `src/common/ops/source_ct_ops.py` | SQL Server CT count SQL (`recon_type` 2/3) |
 | `src/common/ops/ingestion_recon_ops.py` | Per-pipeline orchestration |
 | `src/common/notebooks/run_ingestion_recon.py` | Continuous recon notebook |
 | `src/util/pipeline_generator.py` | `event_log` block on generated pipelines |
 | `src/util/metadata_table_generator.py` | `write_recon_tables_sql()` |
 | `tests/test_lakeflow_recon.py` | Unit tests |
 
-## SQL Server CDC compare (`recon_type` 2/3)
+## SQL Server Change Tracking compare (`recon_type` 2/3)
 
-Counts rows in `cdc.<capture_instance>_CT` for the flow time window using LSN mapping:
+Counts rows from `CHANGETABLE(CHANGES schema.table, 0)` joined to `sys.dm_tran_commit_time`, filtered to the flow `[first_event_time, last_event_time]`:
 
-- Default capture instance: `{src_db_schema}_{table_nm}` (e.g. `dbo_CustomImportDetail`)
-- **Type 2:** `__$operation IN (1, 2, 4)` — delete, insert, update-after
-- **Type 3:** `__$operation IN (2, 4)` — insert, update-after
+- **Type 2:** `SYS_CHANGE_OPERATION IN ('I', 'U', 'D')`
+- **Type 3:** `SYS_CHANGE_OPERATION IN ('I', 'U')`
 
-Queries run via Spark SQL against the UC federated SQL catalog (`client.src_db_nm`). Requires CDC grants from generated `*_grant_cdc_access.sql`.
+Queries run via Spark SQL against the UC federated SQL catalog (`client.src_db_nm`). Requires CT enabled (`*_enable_ct.sql`) and grants (`*_grant_ct_access.sql`).
 
-If CDC count cannot be read, recon **FAILs** for types 2/3.
+If CT count cannot be read, recon **FAILs** for types 2/3.
 
 ## Example event log query (manual)
 
@@ -260,7 +261,7 @@ Warnings about unknown fields (`pipeline_type`, `spark_version`, `data_security_
 |---------|--------------|--------|
 | `SKIP event log not found` | Pipeline not redeployed with `event_log` | `generate` + `bundle deploy` |
 | No `recon_ready` rows | No flows reached `COMPLETED` yet | Check event log for `flow_progress` |
-| FAIL `source CDC count unavailable` | Federated SQL / CDC grants | Run grant SQL; verify `src_db_nm` catalog |
+| FAIL `source CT count unavailable` | Federated SQL / CT grants | Run `*_enable_ct.sql` + `*_grant_ct_access.sql`; verify `src_db_nm` catalog |
 | Duplicate calc triggers | Should not occur | Recon skips existing `(pipeline_id, update_id, flow_name)` in `recon_ready` |
 | Metrics look low | Summing deltas in window only | Expected; do not compare to table `COUNT(*)` |
 

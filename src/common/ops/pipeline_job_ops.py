@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from common.ops.pipeline_names import load_pipeline_names, normalize_pipeline_key
+
 
 FAILED_STATES = {"FAILED", "CANCELED", "CANCELLED"}
 ACTIVE_UPDATE_STATES = {
@@ -182,14 +184,7 @@ def _list_generated_pipelines(client: DatabricksRestClient, name_prefix: str) ->
 
 
 def _load_pipeline_names(path: str | None) -> list[str]:
-    if not path:
-        return []
-    file = Path(path)
-    if not file.exists():
-        raise FileNotFoundError(f"pipeline names file not found: {path}")
-    payload = json.loads(file.read_text(encoding="utf-8"))
-    names = payload.get("pipelines", []) if isinstance(payload, dict) else []
-    return [str(n) for n in names if str(n).strip()]
+    return load_pipeline_names(path)
 
 
 def _filter_pipelines(
@@ -197,7 +192,9 @@ def _filter_pipelines(
 ) -> list[dict[str, Any]]:
     if not configured_names:
         return pipelines
-    configured = {_logical_pipeline_name(name) for name in configured_names}
+    configured = {
+        _logical_pipeline_name(normalize_pipeline_key(name)) for name in configured_names
+    }
     return [
         p
         for p in pipelines

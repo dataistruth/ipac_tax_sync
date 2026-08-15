@@ -1,7 +1,7 @@
 resources:
   jobs:
     ingestion_recon_monitor:
-      name: ipac_delta_sync_ingestion_recon_monitor
+      name: j_ipac_delta_sync_ingestion_recon_monitor
       max_concurrent_runs: 1
       timeout_seconds: 0
       permissions:

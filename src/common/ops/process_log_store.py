@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from common.ops.pipeline_names import normalize_pipeline_key
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -151,7 +152,7 @@ def logical_process_name(display_name: str) -> str:
 
 
 def client_nm_from_ingest_pipeline(process_nm: str) -> str:
-    logical = logical_process_name(process_nm)
+    logical = normalize_pipeline_key(logical_process_name(process_nm))
     match = _PIPELINE_CLIENT_RE.match(logical)
     if match:
         return match.group(1)

@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS {table} (
   client_nm STRING,
   destination_schema STRING,
   destination_table STRING,
-  recon_type INT COMMENT '1=metrics only, 2=change rows vs CDC, 3=upserts vs CDC',
+  recon_type INT COMMENT '1=metrics only, 2=change rows vs CT, 3=upserts vs CT',
   final_flow_status STRING,
   total_output_rows BIGINT,
   total_upserted BIGINT,
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS {table} (
   last_event_time TIMESTAMP,
   metric_duration_sec DOUBLE,
   recon_status STRING COMMENT 'PENDING | PASS | FAIL | SKIPPED',
-  source_change_rows BIGINT COMMENT 'SQL Server CDC count when recon_type 2/3',
+  source_change_rows BIGINT COMMENT 'SQL Server CT count when recon_type 2/3',
   recon_message STRING,
   recorded_at TIMESTAMP NOT NULL
 )

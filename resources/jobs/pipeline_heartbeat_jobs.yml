@@ -1,7 +1,7 @@
 resources:
   jobs:
     pipeline_heartbeat_monitor:
-      name: ipac_delta_sync_pipeline_heartbeat_monitor
+      name: j_ipac_delta_sync_pipeline_heartbeat_monitor
       max_concurrent_runs: 1
       timeout_seconds: 0
       permissions:
@@ -28,7 +28,7 @@ resources:
               ipac_metadata_schema: ${var.ipac_metadata_schema}
 
     pipeline_failed_restart:
-      name: ipac_delta_sync_pipeline_failed_restart
+      name: j_ipac_delta_sync_pipeline_failed_restart
       max_concurrent_runs: 1
       timeout_seconds: 0
       permissions:
