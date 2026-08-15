@@ -1,0 +1,27 @@
+resources:
+  jobs:
+    ingestion_recon_monitor:
+      name: ipac_delta_sync_ingestion_recon_monitor
+      max_concurrent_runs: 1
+      timeout_seconds: 0
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.grant_group}
+      tags:
+        bundle: ${var.job_tag}
+      email_notifications:
+        on_failure:
+          - ${var.heartbeat_job_alert_mail}
+      continuous:
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: run_ingestion_recon
+          notebook_task:
+            notebook_path: ${workspace.file_path}/src/common/notebooks/run_ingestion_recon.py
+            base_parameters:
+              uc_catalog: ${var.uc_catalog}
+              ipac_metadata_schema: ${var.ipac_metadata_schema}
+              pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
+              dest_schema_suffix: ${var.dest_schema_suffix}
+              poll_interval_sec: ${var.recon_poll_interval_sec}
+              lookback_hours: ${var.recon_lookback_hours}
