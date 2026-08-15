@@ -248,6 +248,90 @@ def ensure_recon_tables(spark, catalog: str, schema: str) -> None:
     spark.sql(recon_ready_create_sql(catalog, schema))
 
 
+def _flow_metrics_spark_schema():
+    from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
+
+    return StructType(
+        [
+            StructField("event_id", StringType(), False),
+            StructField("pipeline_id", StringType(), False),
+            StructField("pipeline_name", StringType(), True),
+            StructField("update_id", StringType(), False),
+            StructField("flow_name", StringType(), False),
+            StructField("table_name", StringType(), True),
+            StructField("event_timestamp", TimestampType(), False),
+            StructField("flow_status", StringType(), True),
+            StructField("output_rows", LongType(), True),
+            StructField("rows_upserted", LongType(), True),
+            StructField("rows_deleted", LongType(), True),
+            StructField("output_bytes", LongType(), True),
+            StructField("client_nm", StringType(), True),
+            StructField("destination_schema", StringType(), True),
+            StructField("destination_table", StringType(), True),
+            StructField("captured_at", TimestampType(), False),
+        ]
+    )
+
+
+def _flow_summary_spark_schema():
+    from pyspark.sql.types import DoubleType, IntegerType, LongType, StringType, StructField, StructType, TimestampType
+
+    return StructType(
+        [
+            StructField("summary_id", StringType(), False),
+            StructField("pipeline_id", StringType(), False),
+            StructField("pipeline_name", StringType(), True),
+            StructField("update_id", StringType(), False),
+            StructField("flow_name", StringType(), False),
+            StructField("table_name", StringType(), False),
+            StructField("client_nm", StringType(), True),
+            StructField("destination_schema", StringType(), True),
+            StructField("destination_table", StringType(), True),
+            StructField("recon_type", IntegerType(), True),
+            StructField("final_flow_status", StringType(), True),
+            StructField("total_output_rows", LongType(), True),
+            StructField("total_upserted", LongType(), True),
+            StructField("total_deleted", LongType(), True),
+            StructField("total_change_rows", LongType(), True),
+            StructField("total_output_bytes", LongType(), True),
+            StructField("first_event_time", TimestampType(), True),
+            StructField("last_event_time", TimestampType(), True),
+            StructField("metric_duration_sec", DoubleType(), True),
+            StructField("recon_status", StringType(), True),
+            StructField("source_change_rows", LongType(), True),
+            StructField("recon_message", StringType(), True),
+            StructField("recorded_at", TimestampType(), False),
+        ]
+    )
+
+
+def _recon_ready_spark_schema():
+    from pyspark.sql.types import BooleanType, IntegerType, LongType, StringType, StructField, StructType, TimestampType
+
+    return StructType(
+        [
+            StructField("recon_id", StringType(), False),
+            StructField("client_nm", StringType(), False),
+            StructField("table_nm", StringType(), False),
+            StructField("pipeline_id", StringType(), False),
+            StructField("update_id", StringType(), False),
+            StructField("flow_name", StringType(), False),
+            StructField("recon_type", IntegerType(), True),
+            StructField("ingest_change_rows", LongType(), True),
+            StructField("source_change_rows", LongType(), True),
+            StructField("completed_at", TimestampType(), False),
+            StructField("artifact_run_id", StringType(), True),
+            StructField("ready_for_calc", BooleanType(), False),
+        ]
+    )
+
+
+def _create_typed_dataframe(spark, rows: list[dict[str, Any]], schema) -> Any:
+    if not rows:
+        return spark.createDataFrame([], schema)
+    return spark.createDataFrame(rows, schema=schema)
+
+
 def write_flow_metrics_rows(
     spark,
     catalog: str,
@@ -258,14 +342,50 @@ def write_flow_metrics_rows(
         return 0
     ensure_recon_tables(spark, catalog, schema)
     target = qualified_table(catalog, schema, FLOW_METRICS_TABLE)
-    df = spark.createDataFrame([row.as_dict() for row in rows])
+    spark_schema = _flow_metrics_spark_schema()
+    df = _create_typed_dataframe(spark, [row.as_dict() for row in rows], spark_schema)
     df.createOrReplaceTempView("new_flow_metrics")
     spark.sql(
         f"""
         MERGE INTO {target} AS target
         USING new_flow_metrics AS source
         ON target.event_id = source.event_id
-        WHEN NOT MATCHED THEN INSERT *
+        WHEN NOT MATCHED THEN INSERT (
+          event_id,
+          pipeline_id,
+          pipeline_name,
+          update_id,
+          flow_name,
+          table_name,
+          event_timestamp,
+          flow_status,
+          output_rows,
+          rows_upserted,
+          rows_deleted,
+          output_bytes,
+          client_nm,
+          destination_schema,
+          destination_table,
+          captured_at
+        )
+        VALUES (
+          source.event_id,
+          source.pipeline_id,
+          source.pipeline_name,
+          source.update_id,
+          source.flow_name,
+          source.table_name,
+          source.event_timestamp,
+          source.flow_status,
+          source.output_rows,
+          source.rows_upserted,
+          source.rows_deleted,
+          source.output_bytes,
+          source.client_nm,
+          source.destination_schema,
+          source.destination_table,
+          source.captured_at
+        )
         """
     )
     return len(rows)
@@ -281,7 +401,8 @@ def write_flow_summary_rows(
         return 0
     ensure_recon_tables(spark, catalog, schema)
     target = qualified_table(catalog, schema, FLOW_SUMMARY_TABLE)
-    df = spark.createDataFrame([row.as_dict() for row in rows])
+    spark_schema = _flow_summary_spark_schema()
+    df = _create_typed_dataframe(spark, [row.as_dict() for row in rows], spark_schema)
     df.write.format("delta").mode("append").saveAsTable(target)
     return len(rows)
 
@@ -296,6 +417,7 @@ def write_recon_ready_rows(
         return 0
     ensure_recon_tables(spark, catalog, schema)
     target = qualified_table(catalog, schema, RECON_READY_TABLE)
-    df = spark.createDataFrame([row.as_dict() for row in rows])
+    spark_schema = _recon_ready_spark_schema()
+    df = _create_typed_dataframe(spark, [row.as_dict() for row in rows], spark_schema)
     df.write.format("delta").mode("append").saveAsTable(target)
     return len(rows)

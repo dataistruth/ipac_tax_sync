@@ -234,9 +234,49 @@ def _pipeline_match_failure_message(
     )
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _pipeline_spec(detail: dict[str, Any]) -> dict[str, Any]:
+    return _as_dict(detail.get("spec"))
+
+
+def _pipeline_state_block(detail: dict[str, Any]) -> dict[str, Any]:
+    """State object from GET pipeline; top-level state may be a string on some pipeline types."""
+    state = detail.get("state")
+    if isinstance(state, dict):
+        return state
+    return {}
+
+
+def _latest_update_block(detail: dict[str, Any]) -> dict[str, Any]:
+    state = _pipeline_state_block(detail)
+    latest = state.get("latest_update")
+    if isinstance(latest, dict):
+        return latest
+    root = detail.get("latest_update")
+    if isinstance(root, dict):
+        return root
+    for updates in (state.get("latest_updates"), detail.get("latest_updates")):
+        if isinstance(updates, list) and updates:
+            tail = updates[-1]
+            if isinstance(tail, dict):
+                return tail
+    return {}
+
+
+def _pipeline_state_label(detail: dict[str, Any]) -> str:
+    state = detail.get("state")
+    if isinstance(state, str):
+        return state.strip().upper()
+    block = _pipeline_state_block(detail)
+    return str(block.get("state") or block.get("status") or "").strip().upper()
+
+
 def _latest_update_timestamps_ms(detail: dict[str, Any]) -> list[int]:
-    state = detail.get("state", {}) or {}
-    latest_update = state.get("latest_update", {}) or {}
+    state = _pipeline_state_block(detail)
+    latest_update = _latest_update_block(detail)
     ts_candidates = [
         latest_update.get("creation_time"),
         latest_update.get("start_time"),
@@ -249,9 +289,11 @@ def _latest_update_timestamps_ms(detail: dict[str, Any]) -> list[int]:
 
 def describe_pipeline_status(detail: dict[str, Any]) -> str:
     """Human-readable pipeline poll snapshot from GET /api/2.0/pipelines/{id}."""
-    spec = detail.get("spec", {}) or {}
-    state = detail.get("state", {}) or {}
-    latest_update = state.get("latest_update", {}) or {}
+    if not isinstance(detail, dict):
+        return f"invalid detail type={type(detail).__name__}"
+    spec = _pipeline_spec(detail)
+    state = _pipeline_state_block(detail)
+    latest_update = _latest_update_block(detail)
     update_state = str(latest_update.get("state", "")).upper() or "NONE"
     parts = [
         f"continuous={bool(spec.get('continuous', False))}",
@@ -259,8 +301,9 @@ def describe_pipeline_status(detail: dict[str, Any]) -> str:
     ]
     if latest_update.get("update_id"):
         parts.append(f"update_id={latest_update['update_id']}")
-    if state.get("state"):
-        parts.append(f"pipeline_state={state.get('state')}")
+    pipeline_state = _pipeline_state_label(detail)
+    if pipeline_state:
+        parts.append(f"pipeline_state={pipeline_state}")
     ts_values = _latest_update_timestamps_ms(detail)
     if ts_values:
         age_sec = int((_now_ms() - max(ts_values)) / 1000)
@@ -272,11 +315,12 @@ def _evaluate_pipeline_health(
     detail: dict[str, Any], heartbeat_interval_sec: int
 ) -> tuple[bool, str, int | None, str, bool]:
     """Return healthy, reason, heartbeat_age_sec, update_state, continuous."""
+    if not isinstance(detail, dict):
+        return False, f"UNHEALTHY | invalid pipeline detail type={type(detail).__name__}", None, "NONE", False
     status_line = describe_pipeline_status(detail)
-    spec = detail.get("spec", {}) or {}
+    spec = _pipeline_spec(detail)
     continuous = bool(spec.get("continuous", False))
-    state = detail.get("state", {}) or {}
-    latest_update = state.get("latest_update", {}) or {}
+    latest_update = _latest_update_block(detail)
     update_state = str(latest_update.get("state", "")).upper() or "NONE"
 
     if not continuous:
@@ -312,7 +356,7 @@ def _evaluate_pipeline_health(
 
 
 def _update_times_ms(detail: dict[str, Any]) -> tuple[int | None, int | None, str]:
-    latest_update = (detail.get("state", {}) or {}).get("latest_update", {}) or {}
+    latest_update = _latest_update_block(detail)
     start_candidates = [
         latest_update.get("start_time"),
         latest_update.get("update_start_time"),
@@ -378,10 +422,10 @@ def _pipeline_health(
 
 
 def _is_failed_continuous(detail: dict[str, Any]) -> tuple[bool, str]:
-    spec = detail.get("spec", {}) or {}
+    spec = _pipeline_spec(detail)
     if not bool(spec.get("continuous", False)):
         return False, "non-continuous"
-    latest_update = (detail.get("state", {}) or {}).get("latest_update", {}) or {}
+    latest_update = _latest_update_block(detail)
     update_state = str(latest_update.get("state", "")).upper()
     if update_state in FAILED_STATES:
         return True, f"latest_update.state={update_state}"

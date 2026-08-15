@@ -115,6 +115,24 @@ class _DetailClient:
         raise AssertionError(path)
 
 
+def test_describe_pipeline_status_string_top_level_state():
+    """MANAGED_INGESTION GET may return state as a string, not an object."""
+    detail = {
+        "spec": {"continuous": True},
+        "state": "RUNNING",
+        "latest_update": {
+            "state": "RUNNING",
+            "update_id": "abc",
+            "start_time": 1_700_000_000_000,
+        },
+    }
+    text = describe_pipeline_status(detail)
+    assert "continuous=True" in text
+    assert "update_state=RUNNING" in text
+    assert "pipeline_state=RUNNING" in text
+    assert "update_id=abc" in text
+
+
 def test_describe_pipeline_status_includes_update_state():
     detail = {
         "spec": {"continuous": True},
