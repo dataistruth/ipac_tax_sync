@@ -237,9 +237,26 @@ AND (recon_type = 1 OR source_change_rows = ingest_change_rows)
 
 See `docs/IPAC_SDT_THREE_REPO_ARCHITECTURE.md` in the deloitte repo for cross-repo coordination.
 
-## Troubleshooting
+### Bundle validate errors
 
-| Symptom | Likely cause | Action |
+If `databricks bundle validate` reports `reference does not exist: ${var.recon_lookback_hours}` (or `recon_poll_interval_sec`), ensure `databricks.yml` defines those variables under **both** root `variables:` and your active target (`dev` / `prod`):
+
+```yaml
+variables:
+  recon_poll_interval_sec:
+    default: 300
+  recon_lookback_hours:
+    default: 24
+
+targets:
+  dev:
+    variables:
+      recon_poll_interval_sec: 300
+      recon_lookback_hours: 24
+```
+
+Warnings about unknown fields (`pipeline_type`, `spark_version`, `data_security_mode` on pipeline clusters) are usually benign — the Databricks CLI schema may lag Lakeflow Connect pipeline fields. Upgrade the Databricks CLI if deploy fails on those fields.
+
 |---------|--------------|--------|
 | `SKIP event log not found` | Pipeline not redeployed with `event_log` | `generate` + `bundle deploy` |
 | No `recon_ready` rows | No flows reached `COMPLETED` yet | Check event log for `flow_progress` |

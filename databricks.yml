@@ -81,6 +81,8 @@ targets:
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
+      recon_poll_interval_sec: 300
+      recon_lookback_hours: 24
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
@@ -97,6 +99,8 @@ targets:
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
+      recon_poll_interval_sec: 300
+      recon_lookback_hours: 24
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
