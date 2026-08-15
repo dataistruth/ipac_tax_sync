@@ -11,6 +11,7 @@ from util.bundle_config import (
     PIPELINE_SPARK_VERSION_VAR_REF,
     PIPELINE_TAG_VAR_REF,
     UC_CATALOG_VAR_REF,
+    IPAC_METADATA_SCHEMA_VAR_REF,
     UC_LKF_STAGING_SCHEMA_VAR_REF,
 )
 from util.cluster_tiers import expected_job_tier_for_size, format_pipeline_cluster_lines
@@ -95,6 +96,10 @@ def _pipeline_resource_lines(
         f"    {pipeline_key}:",
         f"      name: {pipeline_key}",
         "      pipeline_type: MANAGED_INGESTION",
+        "      event_log:",
+        f"        catalog: {uc_catalog_ref}",
+        f"        schema: {IPAC_METADATA_SCHEMA_VAR_REF}",
+        f"        name: ingest_events_{pipeline_key}",
         "      permissions:",
         "        - level: CAN_MANAGE",
         "          group_name: ${var.grant_group}",

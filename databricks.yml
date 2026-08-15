@@ -43,6 +43,12 @@ variables:
   heartbeat_interval_sec:
     default: 900
     description: Poll interval (seconds) for heartbeat monitor job and max allowed heartbeat age for continuous pipelines
+  recon_poll_interval_sec:
+    default: 300
+    description: Poll interval (seconds) for ingestion flow metrics reconciliation job
+  recon_lookback_hours:
+    default: 24
+    description: Hours of ingestion event log history to scan each recon poll
   heartbeat_job_alert_mail:
     default: mukessingh@deloitte.com
     description: Email recipient for heartbeat monitor/restart job failures

@@ -79,7 +79,7 @@ Raw and staging share one schema per client: `{uc_catalog}.{client_nm}{dest_sche
 | `is_active` | Include in default client set when true |
 | `select_cols` | Column list; empty = select all (`*`) |
 | `scd_type` | `1` (default overwrite) or `2` (history / merge) |
-| `recon_type` | Reconciliation type: `1`, `2`, or `3` |
+| `recon_type` | Ingestion reconciliation mode: `1` = metrics-only PASS on flow COMPLETED (no SQL compare); `2` = compare `upserted+deleted` vs SQL Server CDC changes; `3` = compare `upserted` vs SQL Server CDC inserts+updates |
 
 ### `client_overrides/<client_nm>.json`
 
@@ -226,7 +226,26 @@ Notebooks: `src/common/notebooks/monitor_pipeline_heartbeat.py` and `restart_fai
 Shared REST logic: `src/common/ops/pipeline_job_ops.py` (stdlib only, auth via `dbutils`).
 Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and logs `update_state`, heartbeat age, and continuous flag. Uses `variables.heartbeat_interval_sec` as both poll sleep interval and stale threshold.
 
-## Onboard a new client
+### Ingestion flow metrics reconciliation
+
+Job `ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls published MANAGED_INGESTION event logs (`ingest_events_p_*` in `{uc_catalog}.{ipac_metadata_schema}`), aggregates per-table `flow_progress` when status = `COMPLETED`, and writes:
+
+- `lakeflow_flow_metrics` — raw event metrics (merge by `event_id`)
+- `lakeflow_flow_summary` — per `(update_id, flow_name)` aggregates
+- `recon_ready` — PASS rows only (calc gate)
+- `process_log` — ingest SUCCESS/FAILED per reconciled table flow
+
+Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
+
+Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_cdc_ops.py`, `recon_store.py`.
+
+Generated pipelines include `event_log` publishing — regenerate and redeploy after upgrading:
+
+```bash
+./ipac-delta-sync generate
+databricks bundle deploy
+```
+
 
 1. Add a row to `config/common/client.json` with `is_active: true`
 2. Optionally add `config/common/client_overrides/<client_nm>.json`

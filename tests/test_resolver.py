@@ -111,6 +111,8 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     tier = cluster_cfg.tiers[expected_job_tier_for_size(client.client_size)]
     assert f"min_workers: {tier.min_workers}" in yaml_text
     assert f"max_workers: {tier.max_workers}" in yaml_text
+    assert "event_log:" in yaml_text
+    assert "ingest_events_p_iPC_2025_Dev7_15350_1" in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")

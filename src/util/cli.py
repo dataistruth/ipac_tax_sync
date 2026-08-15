@@ -41,7 +41,7 @@ from util.pipeline_generator import (
     write_bundle_pipeline_yaml,
     write_client_pipeline_yamls,
 )
-from util.metadata_table_generator import write_process_log_table_sql
+from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.schema_generator import (
@@ -275,9 +275,15 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             metadata_schema,
             schema_dir,
         )
+        recon_sql_path = write_recon_tables_sql(
+            resolved_uc_catalog,
+            metadata_schema,
+            schema_dir,
+        )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
         print(f"Generated {metadata_schema_path}", flush=True)
         print(f"Generated {process_log_sql_path}", flush=True)
+        print(f"Generated {recon_sql_path}", flush=True)
         print(f"Generated {registry_path}", flush=True)
         _log("Done.")
 
