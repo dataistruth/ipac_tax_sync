@@ -90,6 +90,16 @@ def _unlink_generated(path, removed: list[str]) -> None:
         print(f"WARN could not remove {path}: {exc}", file=sys.stderr)
 
 
+def remove_client_generated_artifacts(client_nm: str) -> list[str]:
+    """Remove generated bundle + schema YAML for one client (e.g. before regen with new suffix)."""
+    removed: list[str] = []
+    bundle_path = generated_bundle_dir() / f"{client_nm}_pipeline.yml"
+    schema_path = generated_config_schema_dir() / f"{client_nm}_schema.yml"
+    _unlink_generated(bundle_path, removed)
+    _unlink_generated(schema_path, removed)
+    return removed
+
+
 def remove_generated_pipeline_artifacts() -> list[str]:
     """Delete previously generated bundle YAML and stale src/*/pipelines YAML."""
     removed: list[str] = []

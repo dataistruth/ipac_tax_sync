@@ -80,7 +80,7 @@ def test_resolve_effective_tables_for_first_client():
 
 
 def test_dest_schema_suffix_default_empty():
-    assert resolve_dest_schema_suffix() == "poc_1"
+    assert resolve_dest_schema_suffix() == "_poc1"
 
 
 def test_generate_yaml_uses_per_client_destination_schema_with_suffix():

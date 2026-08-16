@@ -48,6 +48,7 @@ from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.sql_generator import write_source_replication_sql
 from util.src_scaffold import (
+    remove_client_generated_artifacts,
     remove_generated_pipeline_artifacts,
     remove_stale_client_dirs,
     scaffold_src_tree,
@@ -138,13 +139,20 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     client_names = ", ".join(c.client_nm for c in clients)
     _log(f"Generating for {len(clients)} client(s): {client_names}")
 
-    if not args.client and not args.stdout and not getattr(args, "no_clean", False):
-        _log("Cleaning old generated pipeline/schema artifacts...")
-        removed = remove_generated_pipeline_artifacts()
-        stale_dirs = remove_stale_client_dirs({c.client_nm for c in clients})
+    if not args.stdout and not getattr(args, "no_clean", False):
+        stale_dirs: list[str] = []
+        if args.client:
+            _log("Cleaning generated bundle/schema for selected client(s)...")
+            removed: list[str] = []
+            for c in clients:
+                removed.extend(remove_client_generated_artifacts(c.client_nm))
+        else:
+            _log("Cleaning old generated pipeline/schema artifacts...")
+            removed = remove_generated_pipeline_artifacts()
+            stale_dirs = remove_stale_client_dirs({c.client_nm for c in clients})
         if removed:
             _log(f"Removed {len(removed)} old generated file(s).")
-        if stale_dirs:
+        if not args.client and stale_dirs:
             _log(f"Removed {len(stale_dirs)} stale client src folder(s).")
 
     _log("Scaffolding src tree...")
@@ -163,6 +171,10 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     dest_schema_suffix = resolve_dest_schema_suffix(
         override=getattr(args, "dest_schema_suffix", None),
         target=getattr(args, "target", None),
+    )
+    _log(
+        f"dest_schema_suffix={dest_schema_suffix!r} "
+        f"(override --dest-schema-suffix, else databricks.yml targets.dev.variables)"
     )
     uc_lkf_staging_schema_ref = uc_lkf_staging_schema_var_ref()
     resolved_uc_lkf_staging_schema = resolve_uc_lkf_staging_schema(
