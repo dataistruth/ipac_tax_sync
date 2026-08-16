@@ -282,6 +282,40 @@ def ensure_process_log_table(spark, catalog: str, schema: str) -> None:
     spark.sql(process_log_create_sql(catalog, schema))
 
 
+def _process_log_spark_schema():
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType, TimestampType
+
+    return StructType(
+        [
+            StructField("log_id", StringType(), False),
+            StructField("process_type", StringType(), False),
+            StructField("process_nm", StringType(), False),
+            StructField("artifact_type", StringType(), True),
+            StructField("artifact_id", StringType(), True),
+            StructField("artifact_run_id", StringType(), True),
+            StructField("process_id", StringType(), True),
+            StructField("client_nm", StringType(), True),
+            StructField("object_nm", StringType(), True),
+            StructField("job_id", StringType(), True),
+            StructField("task_id", StringType(), True),
+            StructField("start_tm", TimestampType(), True),
+            StructField("end_tm", TimestampType(), True),
+            StructField("current_status", StringType(), False),
+            StructField("detail_status", StringType(), True),
+            StructField("heartbeat_age_sec", LongType(), True),
+            StructField("heartbeat_threshold_sec", LongType(), True),
+            StructField("rows_read", LongType(), True),
+            StructField("rows_written", LongType(), True),
+            StructField("rows_deleted", LongType(), True),
+            StructField("duration_sec", DoubleType(), True),
+            StructField("poll_iteration", LongType(), True),
+            StructField("monitor_run_id", StringType(), True),
+            StructField("log", StringType(), True),
+            StructField("recorded_at", TimestampType(), False),
+        ]
+    )
+
+
 def write_process_log_rows(
     spark,
     catalog: str,
@@ -291,7 +325,8 @@ def write_process_log_rows(
     if not rows:
         return 0
     ensure_process_log_table(spark, catalog, schema)
-    df = spark.createDataFrame([row.as_dict() for row in rows])
+    spark_schema = _process_log_spark_schema()
+    df = spark.createDataFrame([row.as_dict() for row in rows], schema=spark_schema)
     df.write.format("delta").mode("append").saveAsTable(qualified_table(catalog, schema))
     return len(rows)
 

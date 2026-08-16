@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from util.bundle_config import (
+    INGEST_EVENT_LOG_NAME_VAR_REF,
     JOB_TAG_VAR_REF,
     PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
     PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
@@ -106,7 +107,7 @@ def _pipeline_resource_lines(
         "      event_log:",
         f"        catalog: {uc_catalog_ref}",
         f"        schema: {IPAC_METADATA_SCHEMA_VAR_REF}",
-        f"        name: ingest_events_{pipeline_key}",
+        f"        name: {INGEST_EVENT_LOG_NAME_VAR_REF}",
         "      permissions:",
         "        - level: CAN_MANAGE",
         "          group_name: ${var.grant_group}",

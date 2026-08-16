@@ -1,6 +1,7 @@
 """Tests for ipac_delta_sync config/common model."""
 
 from util.bundle_config import (
+    INGEST_EVENT_LOG_NAME_VAR_REF,
     pipeline_tag_var_ref,
     pipeline_max_update_retry_attempts_var_ref,
     pipeline_cluster_node_type_var_ref,
@@ -112,7 +113,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert f"min_workers: {tier.min_workers}" in yaml_text
     assert f"max_workers: {tier.max_workers}" in yaml_text
     assert "event_log:" in yaml_text
-    assert "ingest_events_p_iPC_2025_Dev7_15350_1" in yaml_text
+    assert f"name: {INGEST_EVENT_LOG_NAME_VAR_REF}" in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
-from common.ops.recon_store import FlowMetricsRow, FlowSummaryRow, ingest_event_log_table_name
+from common.ops.recon_store import FlowMetricsRow, FlowSummaryRow, default_ingest_event_log_table_name
 
 FLOW_PROGRESS_EVENT = "flow_progress"
 MANAGED_INGESTION = "MANAGED_INGESTION"
@@ -45,7 +45,7 @@ def build_pipeline_recon_context(
         pipeline_id=pipeline_id,
         pipeline_name=pipeline_name or pipeline_key,
         client_nm=client_nm,
-        event_log_table=ingest_event_log_table_name(pipeline_key),
+        event_log_table=default_ingest_event_log_table_name(),
         tables=table_configs,
     )
 
