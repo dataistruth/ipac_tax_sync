@@ -12,7 +12,7 @@
 dbutils.widgets.text("uc_catalog", "ipac_tax_synch", "UC catalog")
 dbutils.widgets.text("ipac_metadata_schema", "ipac_metadata", "Metadata schema")
 dbutils.widgets.text("pipeline_names_file", "", "pipeline_names.json path")
-dbutils.widgets.text("dest_schema_suffix", "poc_1", "Destination schema suffix")
+dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
 dbutils.widgets.text("poll_interval_sec", "300", "Poll interval seconds")
 dbutils.widgets.text("lookback_hours", "24", "Event log lookback hours")
 dbutils.widgets.text("ingest_event_log_name", "ingest_events", "Shared ingest event log table name")
@@ -22,7 +22,7 @@ dbutils.widgets.text("ct_probe_table_nm", "", "Table to probe (blank = first act
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
 pipeline_names_file = dbutils.widgets.get("pipeline_names_file").strip()
-dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "poc_1"
+dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "_poc1"
 poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "300")
 lookback_hours = int(dbutils.widgets.get("lookback_hours").strip() or "24")
 ingest_event_log_name = dbutils.widgets.get("ingest_event_log_name").strip() or "ingest_events"

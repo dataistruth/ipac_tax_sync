@@ -43,7 +43,7 @@ from util.pipeline_generator import (
     pipeline_resource_key,
     write_bundle_pipeline_yaml,
 )
-from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
+from util.generated_verify import find_embedded_schemas_in_bundle, find_stale_generated_suffix_markers
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.sql_generator import write_source_replication_sql
@@ -288,6 +288,16 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         print(f"Generated {process_log_sql_path}", flush=True)
         print(f"Generated {recon_sql_path}", flush=True)
         print(f"Generated {registry_path}", flush=True)
+        stale_hits = find_stale_generated_suffix_markers(dest_schema_suffix)
+        embedded = find_embedded_schemas_in_bundle()
+        if stale_hits or embedded:
+            print("STALE generated artifacts detected — bundle validate may fail:", file=sys.stderr)
+            for item in stale_hits + embedded:
+                print(f"  - {item}", file=sys.stderr)
+            print(
+                "Run: ipac-delta-sync generate --target dev  (all clients, no --no-clean)",
+                file=sys.stderr,
+            )
         _log("Done.")
 
     return 1 if errors else 0
