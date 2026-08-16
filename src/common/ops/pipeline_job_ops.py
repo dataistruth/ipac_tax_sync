@@ -302,61 +302,9 @@ def _pick_relevant_update(updates: list[dict[str, Any]]) -> dict[str, Any]:
     return max(updates, key=_update_timestamp_ms)
 
 
-def _debug_pick_latest_update(
-    detail: dict[str, Any],
-    candidates: list[dict[str, Any]],
-    chosen: dict[str, Any],
-) -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "588d1c",
-            "hypothesisId": "H1",
-            "location": "pipeline_job_ops.py:_latest_update_block",
-            "message": "latest update selection",
-            "data": {
-                "pipeline_state": _pipeline_state_label(detail),
-                "candidate_count": len(candidates),
-                "candidates": [
-                    {
-                        "update_id": str(u.get("update_id") or ""),
-                        "state": str(u.get("state") or ""),
-                        "ts_ms": _update_timestamp_ms(u),
-                    }
-                    for u in candidates
-                ],
-                "chosen": {
-                    "update_id": str(chosen.get("update_id") or ""),
-                    "state": str(chosen.get("state") or ""),
-                    "ts_ms": _update_timestamp_ms(chosen),
-                },
-            },
-            "timestamp": int(time.time() * 1000),
-            "runId": "pre-fix",
-        }
-        with open(
-            "/Users/mukesh.singh/spark/deloitte/.cursor/debug-588d1c.log",
-            "a",
-            encoding="utf-8",
-        ) as fh:
-            fh.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-    if len(candidates) > 1:
-        print(
-            f"[DEBUG-588d1c] latest update pick: chosen="
-            f"{chosen.get('update_id')} state={chosen.get('state')} "
-            f"from {len(candidates)} candidate(s)"
-        )
-    # #endregion
-
-
 def _latest_update_block(detail: dict[str, Any]) -> dict[str, Any]:
     candidates = _dedupe_updates(_collect_update_blocks(detail))
-    chosen = _pick_relevant_update(candidates)
-    if candidates:
-        _debug_pick_latest_update(detail, candidates, chosen)
-    return chosen
+    return _pick_relevant_update(candidates)
 
 
 def _pipeline_state_label(detail: dict[str, Any]) -> str:

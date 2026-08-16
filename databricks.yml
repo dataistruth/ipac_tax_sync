@@ -6,7 +6,9 @@
 #   2. Set uc_catalog below (common for all clients / targets)
 #   3. ./ipac-delta-sync validate
 #   4. ./ipac-delta-sync generate
-#   5. databricks bundle deploy --select pipelines.p_<client_nm>_1,pipelines.p_<client_nm>_2,...
+#   5. First deploy: databricks bundle validate && databricks bundle deploy
+#      (schemas in generated/bundle + resources/schemas deploy before pipelines)
+#   6. Later: databricks bundle deploy --select pipelines.p_<client_nm>_1,...
 #
 # Calc jobs deploy from ipac-sdt-calc (jobs.*) — see docs/migration-from-ipac-core-sdt.md
 # =============================================================================
@@ -21,7 +23,6 @@ sync:
 
 include:
   - generated/bundle/*.yml
-  - generated/schema/*.yml
   - resources/schemas/*.yml
   - resources/jobs/*.yml
 
@@ -80,7 +81,7 @@ targets:
     mode: development
     default: true
     variables:
-      uc_catalog: ipac_tax_synch
+      uc_catalog: dev7
       dest_schema_suffix: "poc_1"
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team

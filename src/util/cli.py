@@ -30,22 +30,20 @@ from util.config_loader import (
     validate_all,
 )
 from util.paths import (
-    client_pipelines_dir,
     client_sql_dir,
     generated_bundle_dir,
     generated_config_dir,
     generated_schema_dir,
-    project_root,
 )
 from util.pipeline_generator import (
+    chunk_tables,
     generate_client_pipelines_yaml,
+    pipeline_resource_key,
     write_bundle_pipeline_yaml,
-    write_client_pipeline_yamls,
 )
 from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
-from util.schema_deploy import collect_schema_deploy_selectors
 from util.sql_generator import write_source_replication_sql
 from util.src_scaffold import (
     remove_generated_pipeline_artifacts,
@@ -99,65 +97,6 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
                 f"select={t.select_cols}  [{t.source}]"
             )
     return 0
-
-
-def _cmd_deploy_schemas(args: argparse.Namespace) -> int:
-    import subprocess
-
-    selectors = collect_schema_deploy_selectors(
-        generated_schema_dir(),
-        project_root() / "resources" / "schemas",
-    )
-    if not selectors:
-        print("No schema resources found. Run generate first.", file=sys.stderr)
-        return 1
-
-    select_arg = ",".join(selectors)
-    cmd = ["databricks", "bundle", "deploy", "--select", select_arg]
-    if getattr(args, "target", None):
-        cmd.extend(["-t", args.target])
-    print("Deploying bundle schema resources:", flush=True)
-    for sel in selectors:
-        print(f"  - {sel}", flush=True)
-    print("Command:", " ".join(cmd), flush=True)
-    rc = subprocess.call(cmd)
-    if rc == 0:
-        print(
-            "Schema bundle deploy OK. If pipeline deploy still fails, run:\n"
-            "  databricks bundle deploy --select jobs.ensure_uc_schemas\n"
-            "  databricks bundle run ensure_uc_schemas",
-            flush=True,
-        )
-    return rc
-
-
-def _cmd_bootstrap_schemas(args: argparse.Namespace) -> int:
-    """Deploy schema resources + ensure job, then run CREATE SCHEMA IF NOT EXISTS notebook."""
-    import subprocess
-
-    target_args = ["-t", args.target] if getattr(args, "target", None) else []
-
-    deploy_job_cmd = [
-        "databricks",
-        "bundle",
-        "deploy",
-        "--select",
-        "jobs.ensure_uc_schemas",
-    ] + target_args
-    print("Step 1: deploy ensure_uc_schemas job...", flush=True)
-    print("Command:", " ".join(deploy_job_cmd), flush=True)
-    rc = subprocess.call(deploy_job_cmd)
-    if rc != 0:
-        return rc
-
-    rc = _cmd_deploy_schemas(args)
-    if rc != 0:
-        return rc
-
-    run_cmd = ["databricks", "bundle", "run", "ensure_uc_schemas"] + target_args
-    print("Step 3: run ensure_uc_schemas (CREATE SCHEMA IF NOT EXISTS)...", flush=True)
-    print("Command:", " ".join(run_cmd), flush=True)
-    return subprocess.call(run_cmd)
 
 
 def _cmd_sync_src(args: argparse.Namespace) -> int:
@@ -277,20 +216,10 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 pipeline_tag_ref=pipeline_tag_ref,
                 metadata_schema=metadata_schema,
             )
-            _log(f"--- {client.client_nm}: writing per-batch pipeline YAML...")
-            client_paths = write_client_pipeline_yamls(
-                client,
-                tables,
-                client_pipelines_dir(client.client_nm),
-                cluster_cfg,
-                uc_catalog_ref=uc_catalog_ref,
-                resolved_uc_catalog=resolved_uc_catalog,
-                num_of_tables_in_pipeline=num_tables,
-                dest_schema_suffix=dest_schema_suffix,
-                uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
-                resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
-                pipeline_tag_ref=pipeline_tag_ref,
-                metadata_schema=metadata_schema,
+            pipeline_batches = chunk_tables(tables, num_tables)
+            generated_pipeline_names.extend(
+                pipeline_resource_key(client.client_nm, serial)
+                for serial in range(1, len(pipeline_batches) + 1)
             )
             _log(f"--- {client.client_nm}: writing SQL scripts...")
             enable_path, ct_grant_path, cdc_grant_path, status_path = write_source_replication_sql(
@@ -299,25 +228,15 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 client_sql_dir(client.client_nm),
                 principal_placeholder="<KEEP_USER_ID>",
             )
-            schema_path = write_client_schema_resource_yaml(
-                client,
-                dest_schema_suffix=dest_schema_suffix,
-                output_dir=schema_dir,
-                uc_catalog_ref=uc_catalog_ref,
-            )
             print(
                 f"Generated {bundle_path} ({len(tables)} tables, "
-                f"{len(client_paths)} pipeline(s), batch={num_tables})",
+                f"{len(pipeline_batches)} pipeline(s), batch={num_tables})",
                 flush=True,
             )
-            for path in client_paths:
-                print(f"Generated {path}", flush=True)
-                generated_pipeline_names.append(path.rsplit("/", 1)[-1].replace(".yml", ""))
             print(f"Generated {enable_path}", flush=True)
             print(f"Generated {ct_grant_path}", flush=True)
             print(f"Generated {cdc_grant_path}", flush=True)
             print(f"Generated {status_path}", flush=True)
-            print(f"Generated {schema_path}", flush=True)
         except (ValidationError, ValueError, FileNotFoundError) as exc:
             errors += 1
             print(f"FAIL {client.client_nm}: {exc}", file=sys.stderr)
@@ -335,7 +254,11 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             schema_dir,
         )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
-        print(f"Metadata schema resource: resources/schemas/ipac_metadata_schema.yml (bundle)", flush=True)
+        print(
+            "Metadata schema: resources/schemas/ipac_metadata_schema.yml "
+            "(deploy with full bundle: databricks bundle deploy)",
+            flush=True,
+        )
         print(f"Generated {process_log_sql_path}", flush=True)
         print(f"Generated {recon_sql_path}", flush=True)
         print(f"Generated {registry_path}", flush=True)
@@ -368,24 +291,6 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p = sub.add_parser("sync-src", help="Create src/common and src/<client> folders")
     sync_p.add_argument("--client", help="Single client_nm")
     sync_p.add_argument("--force", action="store_true", help="Overwrite placeholder __init__.py")
-
-    deploy_schemas_p = sub.add_parser(
-        "deploy-schemas",
-        help="Deploy Unity Catalog schemas (run before pipeline deploy if ipac_metadata is missing)",
-    )
-    deploy_schemas_p.add_argument(
-        "--target",
-        help="databricks bundle target (default: bundle default target)",
-    )
-
-    bootstrap_schemas_p = sub.add_parser(
-        "bootstrap-schemas",
-        help="Deploy schema resources + run ensure_uc_schemas notebook (fixes missing ipac_metadata)",
-    )
-    bootstrap_schemas_p.add_argument(
-        "--target",
-        help="databricks bundle target (default: bundle default target)",
-    )
 
     generate_p = sub.add_parser("generate", help="Scaffold src + generate pipeline YAML")
     generate_p.add_argument("--client", help="Single client_nm")
@@ -437,8 +342,6 @@ def main(argv: list[str] | None = None) -> int:
         "validate": _cmd_validate,
         "resolve": _cmd_resolve,
         "sync-src": _cmd_sync_src,
-        "deploy-schemas": _cmd_deploy_schemas,
-        "bootstrap-schemas": _cmd_bootstrap_schemas,
         "generate": _cmd_generate,
     }
     return commands[args.command](args)

@@ -1,0 +1,7 @@
+# Shared metadata schema — deployed before pipelines that publish event logs / process_log.
+resources:
+  schemas:
+    schema_ipac_metadata:
+      name: ${var.ipac_metadata_schema}
+      catalog_name: ${var.uc_catalog}
+      comment: "iPAC metadata schema for process logs, recon tables, and ingest event logs"

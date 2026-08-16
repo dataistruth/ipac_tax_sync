@@ -26,9 +26,9 @@ Add silver/gold transforms for this client here.
 """
 '''
 
-PIPELINES_PLACEHOLDER = '''"""Lakeflow Connect pipeline definitions for this client.
+PIPELINES_PLACEHOLDER = '''"""Client pipeline folder (bundle YAML is generated under generated/bundle/).
 
-Pipeline YAML is generated here by: ipac-delta-sync generate --client <client_nm>
+Regenerate: ipac-delta-sync generate --client <client_nm>
 """
 '''
 
@@ -91,7 +91,7 @@ def _unlink_generated(path, removed: list[str]) -> None:
 
 
 def remove_generated_pipeline_artifacts() -> list[str]:
-    """Delete previously generated YAML under generated/ and src/*/pipelines."""
+    """Delete previously generated bundle YAML and stale src/*/pipelines YAML."""
     removed: list[str] = []
 
     bundle_dir = generated_bundle_dir()

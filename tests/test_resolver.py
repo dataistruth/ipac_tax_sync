@@ -23,7 +23,7 @@ from util.config_loader import (
 from util.pipeline_generator import (
     chunk_tables,
     generate_client_pipelines_yaml,
-    generate_lakeflow_pipeline_yaml,
+    generate_client_pipelines_yaml,
 )
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
@@ -88,7 +88,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     client = get_client("iPC_2025_Dev7_15350")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
     dest_schema = client.raw_schema("poc_1")
-    yaml_text = generate_lakeflow_pipeline_yaml(
+    yaml_text = generate_client_pipelines_yaml(
         client,
         tables,
         uc_catalog_ref=UC_REF,
@@ -115,7 +115,8 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "event_log:" in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
-    assert "${resources.schemas.schema_ipac_metadata.name}" in yaml_text
+    assert "catalog: ${var.uc_catalog}" in yaml_text
+    assert "schema: ${var.ipac_metadata_schema}" in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")
@@ -128,7 +129,7 @@ def test_generate_yaml_uses_j3_for_large_client():
     client = get_client("iPC_2025_Dev7_15350").model_copy(update={"client_size": "large", "cluster_tier": "j3"})
     cluster_cfg = load_cluster_config()
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
-    yaml_text = generate_lakeflow_pipeline_yaml(
+    yaml_text = generate_client_pipelines_yaml(
         client,
         tables[:1],
         cluster_config=cluster_cfg,
@@ -145,7 +146,7 @@ def test_generate_yaml_uses_suffix_when_provided():
     client = get_client("iPC_2025_Dev7_15447")
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
     dest_schema = client.raw_schema("_raw")
-    yaml_text = generate_lakeflow_pipeline_yaml(
+    yaml_text = generate_client_pipelines_yaml(
         client,
         tables,
         uc_catalog_ref=UC_REF,
@@ -178,8 +179,12 @@ def test_generate_yaml_splits_into_multiple_pipelines():
     )
 
     assert "resources:" in yaml_text
+    assert "schemas:" in yaml_text
+    assert "schema_ipc_2025_dev7_15350:" in yaml_text
     assert "pipelines:" in yaml_text
     assert "p_iPC_2025_Dev7_15350_1:" in yaml_text
+    assert "catalog: ${var.uc_catalog}" in yaml_text
+    assert "schema: ${var.ipac_metadata_schema}" in yaml_text
 
 
 def test_enable_ct_sql_pk_only_no_cdc():

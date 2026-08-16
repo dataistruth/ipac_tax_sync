@@ -174,10 +174,10 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 
 `generate` writes:
 
-- `generated/bundle/<client_nm>_pipeline.yml` — all `p_<client_nm>_<n>` pipelines for bundle deploy
-- `generated/schema/<client_nm>_schema.yml` — schema resource per client destination schema
-- `generated/schema/ipac_metadata_schema.yml` — metadata schema resource
+- `generated/bundle/<client_nm>_pipeline.yml` — client UC schema + all `p_<client_nm>_<n>` pipelines for bundle deploy
+- `resources/schemas/ipac_metadata_schema.yml` — shared metadata schema resource
 - `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
+- `generated/schema/ipac_metadata_recon_tables.sql` — recon table DDL
 
 ### `ipac_metadata.process_log` (Delta)
 
@@ -202,7 +202,6 @@ Shared operational log at `{uc_catalog}.{ipac_metadata_schema}.process_log` for 
 
 Heartbeat monitor writes `process_type=ingest` rows each poll. Calc / transfer jobs should use `common.ops.process_log_store.build_process_log_row()` + `write_process_log_rows()`.
 - `generated/config/pipeline_names.json` — list of generated pipeline names for heartbeat/restart jobs
-- `src/<client_nm>/pipelines/p_<client_nm>_<n>.yml` — one file per pipeline batch
 - `src/<client_nm>/sql/<client_nm>_enable_ct.sql` — enable CT on PK tables (skips non-PK; CDC not used)
 - `src/<client_nm>/sql/<client_nm>_grant_ct_access.sql` — CT grants for PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
 - `src/<client_nm>/sql/<client_nm>_grant_cdc_access.sql` — CDC grants for non-PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
