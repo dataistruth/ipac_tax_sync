@@ -35,6 +35,7 @@ from util.paths import (
     generated_bundle_dir,
     generated_config_dir,
     generated_schema_dir,
+    project_root,
 )
 from util.pipeline_generator import (
     generate_client_pipelines_yaml,
@@ -44,7 +45,7 @@ from util.pipeline_generator import (
 from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
-from util.schema_generator import write_client_schema_resource_yaml
+from util.schema_deploy import collect_schema_deploy_selectors
 from util.sql_generator import write_source_replication_sql
 from util.src_scaffold import (
     remove_generated_pipeline_artifacts,
@@ -103,12 +104,60 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
 def _cmd_deploy_schemas(args: argparse.Namespace) -> int:
     import subprocess
 
-    cmd = ["databricks", "bundle", "deploy", "--select", "schemas"]
+    selectors = collect_schema_deploy_selectors(
+        generated_schema_dir(),
+        project_root() / "resources" / "schemas",
+    )
+    if not selectors:
+        print("No schema resources found. Run generate first.", file=sys.stderr)
+        return 1
+
+    select_arg = ",".join(selectors)
+    cmd = ["databricks", "bundle", "deploy", "--select", select_arg]
     if getattr(args, "target", None):
         cmd.extend(["-t", args.target])
-    print("Deploying bundle schema resources (metadata + per-client raw schemas)...", flush=True)
+    print("Deploying bundle schema resources:", flush=True)
+    for sel in selectors:
+        print(f"  - {sel}", flush=True)
     print("Command:", " ".join(cmd), flush=True)
-    return subprocess.call(cmd)
+    rc = subprocess.call(cmd)
+    if rc == 0:
+        print(
+            "Schema bundle deploy OK. If pipeline deploy still fails, run:\n"
+            "  databricks bundle deploy --select jobs.ensure_uc_schemas\n"
+            "  databricks bundle run ensure_uc_schemas",
+            flush=True,
+        )
+    return rc
+
+
+def _cmd_bootstrap_schemas(args: argparse.Namespace) -> int:
+    """Deploy schema resources + ensure job, then run CREATE SCHEMA IF NOT EXISTS notebook."""
+    import subprocess
+
+    target_args = ["-t", args.target] if getattr(args, "target", None) else []
+
+    deploy_job_cmd = [
+        "databricks",
+        "bundle",
+        "deploy",
+        "--select",
+        "jobs.ensure_uc_schemas",
+    ] + target_args
+    print("Step 1: deploy ensure_uc_schemas job...", flush=True)
+    print("Command:", " ".join(deploy_job_cmd), flush=True)
+    rc = subprocess.call(deploy_job_cmd)
+    if rc != 0:
+        return rc
+
+    rc = _cmd_deploy_schemas(args)
+    if rc != 0:
+        return rc
+
+    run_cmd = ["databricks", "bundle", "run", "ensure_uc_schemas"] + target_args
+    print("Step 3: run ensure_uc_schemas (CREATE SCHEMA IF NOT EXISTS)...", flush=True)
+    print("Command:", " ".join(run_cmd), flush=True)
+    return subprocess.call(run_cmd)
 
 
 def _cmd_sync_src(args: argparse.Namespace) -> int:
@@ -329,6 +378,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="databricks bundle target (default: bundle default target)",
     )
 
+    bootstrap_schemas_p = sub.add_parser(
+        "bootstrap-schemas",
+        help="Deploy schema resources + run ensure_uc_schemas notebook (fixes missing ipac_metadata)",
+    )
+    bootstrap_schemas_p.add_argument(
+        "--target",
+        help="databricks bundle target (default: bundle default target)",
+    )
+
     generate_p = sub.add_parser("generate", help="Scaffold src + generate pipeline YAML")
     generate_p.add_argument("--client", help="Single client_nm")
     generate_p.add_argument("--output-dir", help="Bundle output dir (default: generated/bundle)")
@@ -380,6 +438,7 @@ def main(argv: list[str] | None = None) -> int:
         "resolve": _cmd_resolve,
         "sync-src": _cmd_sync_src,
         "deploy-schemas": _cmd_deploy_schemas,
+        "bootstrap-schemas": _cmd_bootstrap_schemas,
         "generate": _cmd_generate,
     }
     return commands[args.command](args)
