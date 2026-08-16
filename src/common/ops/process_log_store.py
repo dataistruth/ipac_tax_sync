@@ -279,6 +279,9 @@ def build_process_log_row(
 
 
 def ensure_process_log_table(spark, catalog: str, schema: str) -> None:
+    from common.ops.uc_schema_ops import ensure_uc_schema
+
+    ensure_uc_schema(spark, catalog, schema)
     spark.sql(process_log_create_sql(catalog, schema))
 
 

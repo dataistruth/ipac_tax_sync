@@ -44,10 +44,7 @@ from util.pipeline_generator import (
 from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
-from util.schema_generator import (
-    write_client_schema_resource_yaml,
-    write_metadata_schema_resource_yaml,
-)
+from util.schema_generator import write_client_schema_resource_yaml
 from util.sql_generator import write_source_replication_sql
 from util.src_scaffold import (
     remove_generated_pipeline_artifacts,
@@ -101,6 +98,17 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
                 f"select={t.select_cols}  [{t.source}]"
             )
     return 0
+
+
+def _cmd_deploy_schemas(args: argparse.Namespace) -> int:
+    import subprocess
+
+    cmd = ["databricks", "bundle", "deploy", "--select", "schemas"]
+    if getattr(args, "target", None):
+        cmd.extend(["-t", args.target])
+    print("Deploying bundle schema resources (metadata + per-client raw schemas)...", flush=True)
+    print("Command:", " ".join(cmd), flush=True)
+    return subprocess.call(cmd)
 
 
 def _cmd_sync_src(args: argparse.Namespace) -> int:
@@ -218,6 +226,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                 pipeline_tag_ref=pipeline_tag_ref,
+                metadata_schema=metadata_schema,
             )
             _log(f"--- {client.client_nm}: writing per-batch pipeline YAML...")
             client_paths = write_client_pipeline_yamls(
@@ -232,6 +241,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                 pipeline_tag_ref=pipeline_tag_ref,
+                metadata_schema=metadata_schema,
             )
             _log(f"--- {client.client_nm}: writing SQL scripts...")
             enable_path, ct_grant_path, cdc_grant_path, status_path = write_source_replication_sql(
@@ -264,12 +274,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             print(f"FAIL {client.client_nm}: {exc}", file=sys.stderr)
 
     if not args.stdout:
-        _log("Writing metadata schema and pipeline registry...")
-        metadata_schema_path = write_metadata_schema_resource_yaml(
-            metadata_schema=metadata_schema,
-            output_dir=schema_dir,
-            uc_catalog_ref=uc_catalog_ref,
-        )
+        _log("Writing metadata DDL and pipeline registry...")
         process_log_sql_path = write_process_log_table_sql(
             resolved_uc_catalog,
             metadata_schema,
@@ -281,7 +286,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             schema_dir,
         )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
-        print(f"Generated {metadata_schema_path}", flush=True)
+        print(f"Metadata schema resource: resources/schemas/ipac_metadata_schema.yml (bundle)", flush=True)
         print(f"Generated {process_log_sql_path}", flush=True)
         print(f"Generated {recon_sql_path}", flush=True)
         print(f"Generated {registry_path}", flush=True)
@@ -314,6 +319,15 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p = sub.add_parser("sync-src", help="Create src/common and src/<client> folders")
     sync_p.add_argument("--client", help="Single client_nm")
     sync_p.add_argument("--force", action="store_true", help="Overwrite placeholder __init__.py")
+
+    deploy_schemas_p = sub.add_parser(
+        "deploy-schemas",
+        help="Deploy Unity Catalog schemas (run before pipeline deploy if ipac_metadata is missing)",
+    )
+    deploy_schemas_p.add_argument(
+        "--target",
+        help="databricks bundle target (default: bundle default target)",
+    )
 
     generate_p = sub.add_parser("generate", help="Scaffold src + generate pipeline YAML")
     generate_p.add_argument("--client", help="Single client_nm")
@@ -365,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         "validate": _cmd_validate,
         "resolve": _cmd_resolve,
         "sync-src": _cmd_sync_src,
+        "deploy-schemas": _cmd_deploy_schemas,
         "generate": _cmd_generate,
     }
     return commands[args.command](args)

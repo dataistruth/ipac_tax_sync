@@ -22,6 +22,7 @@ sync:
 include:
   - generated/bundle/*.yml
   - generated/schema/*.yml
+  - resources/schemas/*.yml
   - resources/jobs/*.yml
 
 variables:

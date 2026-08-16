@@ -252,6 +252,9 @@ def all_recon_tables_create_sql(catalog: str, schema: str) -> str:
 
 
 def ensure_recon_tables(spark, catalog: str, schema: str) -> None:
+    from common.ops.uc_schema_ops import ensure_uc_schema
+
+    ensure_uc_schema(spark, catalog, schema)
     spark.sql(lakeflow_flow_metrics_create_sql(catalog, schema))
     spark.sql(lakeflow_flow_summary_create_sql(catalog, schema))
     spark.sql(recon_ready_create_sql(catalog, schema))

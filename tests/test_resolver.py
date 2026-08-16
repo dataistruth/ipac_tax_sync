@@ -113,7 +113,9 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert f"min_workers: {tier.min_workers}" in yaml_text
     assert f"max_workers: {tier.max_workers}" in yaml_text
     assert "event_log:" in yaml_text
-    assert f"name: {INGEST_EVENT_LOG_NAME_VAR_REF}" in yaml_text
+    assert "depends_on:" in yaml_text
+    assert "resources.schemas.schema_ipac_metadata" in yaml_text
+    assert "${resources.schemas.schema_ipac_metadata.name}" in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")

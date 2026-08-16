@@ -12,10 +12,10 @@ from util.bundle_config import (
     PIPELINE_SPARK_VERSION_VAR_REF,
     PIPELINE_TAG_VAR_REF,
     UC_CATALOG_VAR_REF,
-    IPAC_METADATA_SCHEMA_VAR_REF,
     UC_LKF_STAGING_SCHEMA_VAR_REF,
 )
 from util.cluster_tiers import expected_job_tier_for_size, format_pipeline_cluster_lines
+from util.schema_generator import schema_resource_key
 
 if TYPE_CHECKING:
     from util.models import ClientEntry, ClusterConfig, ClusterTier, EffectiveTable
@@ -82,6 +82,16 @@ def _format_object_lines(
     return lines
 
 
+def _schema_bundle_refs(schema_name: str) -> tuple[str, str, str]:
+    """Return (catalog_ref, schema_ref, depends_on_path) for a bundle schema resource."""
+    key = schema_resource_key(schema_name)
+    return (
+        f"${{resources.schemas.{key}.catalog_name}}",
+        f"${{resources.schemas.{key}.name}}",
+        f"resources.schemas.{key}",
+    )
+
+
 def _pipeline_resource_lines(
     client: ClientEntry,
     tables: list[EffectiveTable],
@@ -92,6 +102,7 @@ def _pipeline_resource_lines(
     pipeline_tag_ref: str,
     dest_schema_suffix: str,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    metadata_schema: str = "ipac_metadata",
 ) -> list[str]:
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
@@ -99,14 +110,19 @@ def _pipeline_resource_lines(
     tier = _tier_for_client(client, cluster_config)
     pipeline_key = pipeline_resource_key(client.client_nm, serial)
     job_tier_key = expected_job_tier_for_size(client.client_size)
+    meta_catalog_ref, meta_schema_ref, meta_dep = _schema_bundle_refs(metadata_schema)
+    _, _, client_raw_dep = _schema_bundle_refs(client.raw_schema(dest_schema_suffix))
 
     lines = [
         f"    {pipeline_key}:",
         f"      name: {pipeline_key}",
+        "      depends_on:",
+        f"        - {meta_dep}",
+        f"        - {client_raw_dep}",
         "      pipeline_type: MANAGED_INGESTION",
         "      event_log:",
-        f"        catalog: {uc_catalog_ref}",
-        f"        schema: {IPAC_METADATA_SCHEMA_VAR_REF}",
+        f"        catalog: {meta_catalog_ref}",
+        f"        schema: {meta_schema_ref}",
         f"        name: {INGEST_EVENT_LOG_NAME_VAR_REF}",
         "      permissions:",
         "        - level: CAN_MANAGE",
@@ -162,6 +178,7 @@ def generate_client_pipelines_yaml(
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    metadata_schema: str = "ipac_metadata",
 ) -> str:
     """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
     if not tables:
@@ -209,6 +226,7 @@ def generate_client_pipelines_yaml(
                 pipeline_tag_ref,
                 dest_schema_suffix,
                 pipeline_max_update_retry_attempts_ref,
+                metadata_schema,
             )
         )
 
@@ -227,6 +245,7 @@ def generate_lakeflow_pipeline_yaml(
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    metadata_schema: str = "ipac_metadata",
 ) -> str:
     """Alias for generate_client_pipelines_yaml."""
     return generate_client_pipelines_yaml(
@@ -241,6 +260,7 @@ def generate_lakeflow_pipeline_yaml(
         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
         pipeline_tag_ref=pipeline_tag_ref,
         pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
+        metadata_schema=metadata_schema,
     )
 
 
@@ -258,6 +278,7 @@ def write_pipeline_yaml(
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    metadata_schema: str = "ipac_metadata",
 ) -> str:
     """Write one pipeline batch to a file (serial required when writing a single batch)."""
     from pathlib import Path
@@ -284,6 +305,7 @@ def write_pipeline_yaml(
             pipeline_tag_ref,
             dest_schema_suffix,
             pipeline_max_update_retry_attempts_ref,
+            metadata_schema,
         )
         content = "\n".join(header + body) + "\n"
     else:
@@ -299,6 +321,7 @@ def write_pipeline_yaml(
             resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
             pipeline_tag_ref=pipeline_tag_ref,
             pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
+            metadata_schema=metadata_schema,
         )
 
     path = Path(output_path)
@@ -320,6 +343,7 @@ def write_bundle_pipeline_yaml(
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    metadata_schema: str = "ipac_metadata",
 ) -> str:
     from pathlib import Path
 
@@ -337,6 +361,7 @@ def write_bundle_pipeline_yaml(
         resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
         pipeline_tag_ref=pipeline_tag_ref,
         pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
+        metadata_schema=metadata_schema,
     )
 
 
@@ -353,6 +378,7 @@ def write_client_pipeline_yamls(
     resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
+    metadata_schema: str = "ipac_metadata",
 ) -> list[str]:
     """Write p_<client_nm>_<n>.yml per pipeline batch under src/<client>/pipelines/."""
     from pathlib import Path
@@ -379,6 +405,7 @@ def write_client_pipeline_yamls(
                 resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                 pipeline_tag_ref=pipeline_tag_ref,
                 pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
+                metadata_schema=metadata_schema,
             )
         )
 

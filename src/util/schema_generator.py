@@ -7,9 +7,13 @@ from pathlib import Path
 from util.models import ClientEntry
 
 
-def _schema_resource_key(schema_name: str) -> str:
+def schema_resource_key(schema_name: str) -> str:
     key = schema_name.lower().replace("-", "_")
     return f"schema_{key}"
+
+
+def _schema_resource_key(schema_name: str) -> str:
+    return schema_resource_key(schema_name)
 
 
 def generate_schema_resource_yaml(
