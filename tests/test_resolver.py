@@ -99,7 +99,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
 
     assert f"schema: {LKF_SCHEMA_REF}" in yaml_text
     assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
-    assert f"destination_schema: '{dest_schema}'" in yaml_text
+    assert f"destination_schema: ${{resources.schemas.schema_ipc_2025_dev7_15350poc_1.name}}" in yaml_text
     assert dest_schema == "iPC_2025_Dev7_15350poc_1"
     assert "data_staging_options:" not in yaml_text
     assert "serverless: false" in yaml_text
@@ -115,8 +115,8 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "event_log:" in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
-    assert "catalog: ${var.uc_catalog}" in yaml_text
-    assert "schema: ${var.ipac_metadata_schema}" in yaml_text
+    assert "catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}" in yaml_text
+    assert "schema: ${resources.schemas.schema_ipac_metadata.name}" in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")
@@ -155,7 +155,7 @@ def test_generate_yaml_uses_suffix_when_provided():
 
     assert f"schema: {LKF_SCHEMA_REF}" in yaml_text
     assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
-    assert f"destination_schema: '{dest_schema}'" in yaml_text
+    assert f"destination_schema: ${{resources.schemas.schema_ipc_2025_dev7_15447_raw.name}}" in yaml_text
     assert "data_staging_options:" not in yaml_text
 
 
@@ -179,12 +179,11 @@ def test_generate_yaml_splits_into_multiple_pipelines():
     )
 
     assert "resources:" in yaml_text
-    assert "schemas:" in yaml_text
-    assert "schema_ipc_2025_dev7_15350:" in yaml_text
     assert "pipelines:" in yaml_text
+    assert "schemas:" not in yaml_text.split("pipelines:")[0]
     assert "p_iPC_2025_Dev7_15350_1:" in yaml_text
-    assert "catalog: ${var.uc_catalog}" in yaml_text
-    assert "schema: ${var.ipac_metadata_schema}" in yaml_text
+    assert "catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}" in yaml_text
+    assert "schema: ${resources.schemas.schema_ipac_metadata.name}" in yaml_text
 
 
 def test_enable_ct_sql_pk_only_no_cdc():

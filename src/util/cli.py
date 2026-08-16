@@ -33,8 +33,10 @@ from util.paths import (
     client_sql_dir,
     generated_bundle_dir,
     generated_config_dir,
+    generated_config_schema_dir,
     generated_schema_dir,
 )
+from util.schema_generator import write_client_schema_resource_yaml
 from util.pipeline_generator import (
     chunk_tables,
     generate_client_pipelines_yaml,
@@ -173,6 +175,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         target=getattr(args, "target", None),
     )
     schema_dir = generated_schema_dir()
+    config_schema_dir = generated_config_schema_dir()
     config_dir = generated_config_dir()
     generated_pipeline_names: list[str] = []
     errors = 0
@@ -201,6 +204,13 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 print()
                 continue
 
+            _log(f"--- {client.client_nm}: writing UC schema resource...")
+            schema_resource_path = write_client_schema_resource_yaml(
+                client,
+                dest_schema_suffix=dest_schema_suffix,
+                output_dir=config_schema_dir,
+                uc_catalog_ref=uc_catalog_ref,
+            )
             _log(f"--- {client.client_nm}: writing bundle pipeline YAML ({len(tables)} tables)...")
             bundle_path = write_bundle_pipeline_yaml(
                 client,
@@ -228,6 +238,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 client_sql_dir(client.client_nm),
                 principal_placeholder="<KEEP_USER_ID>",
             )
+            print(f"Generated {schema_resource_path}", flush=True)
             print(
                 f"Generated {bundle_path} ({len(tables)} tables, "
                 f"{len(pipeline_batches)} pipeline(s), batch={num_tables})",
@@ -255,8 +266,11 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
         print(
-            "Metadata schema: resources/schemas/ipac_metadata_schema.yml "
-            "(deploy with full bundle: databricks bundle deploy)",
+            "Metadata schema: resources/schemas/ipac_metadata_schema.yml",
+            flush=True,
+        )
+        print(
+            "Client schemas: generated/config/schema/<client_nm>_schema.yml",
             flush=True,
         )
         print(f"Generated {process_log_sql_path}", flush=True)

@@ -24,8 +24,8 @@ resources:
               name_prefix: p_
               heartbeat_interval_sec: ${var.heartbeat_interval_sec}
               pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
-              uc_catalog: ${var.uc_catalog}
-              ipac_metadata_schema: ${var.ipac_metadata_schema}
+              uc_catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}
+              ipac_metadata_schema: ${resources.schemas.schema_ipac_metadata.name}
 
     pipeline_failed_restart:
       name: j_ipac_delta_sync_pipeline_failed_restart

@@ -174,8 +174,9 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 
 `generate` writes:
 
-- `generated/bundle/<client_nm>_pipeline.yml` — client UC schema + all `p_<client_nm>_<n>` pipelines for bundle deploy
-- `resources/schemas/ipac_metadata_schema.yml` — shared metadata schema resource
+- `resources/schemas/ipac_metadata_schema.yml` — shared metadata schema (bundle deploy)
+- `generated/config/schema/<client_nm>_schema.yml` — per-client raw schema (bundle deploy)
+- `generated/bundle/<client_nm>_pipeline.yml` — pipelines only (`depends_on` both schemas)
 - `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
 - `generated/schema/ipac_metadata_recon_tables.sql` — recon table DDL
 

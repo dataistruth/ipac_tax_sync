@@ -7,13 +7,17 @@
 #   3. ./ipac-delta-sync validate
 #   4. ./ipac-delta-sync generate
 #   5. First deploy: databricks bundle validate && databricks bundle deploy
-#      (schemas in generated/bundle + resources/schemas deploy before pipelines)
+#      (resources/schemas + generated/config/schema deploy before pipelines)
 #   6. Later: databricks bundle deploy --select pipelines.p_<client_nm>_1,...
 #
 # Calc jobs deploy from ipac-sdt-calc (jobs.*) — see docs/migration-from-ipac-core-sdt.md
 # =============================================================================
 bundle:
   name: ipac-delta-sync
+
+# Shared UC schemas (ipac_metadata, client raw) use stable names in dev — no [dev user] prefix.
+experimental:
+  skip_name_prefix_for_schema: true
 
 sync:
   include:
@@ -22,8 +26,9 @@ sync:
     - generated/config/**
 
 include:
-  - generated/bundle/*.yml
   - resources/schemas/*.yml
+  - generated/config/schema/*.yml
+  - generated/bundle/*.yml
   - resources/jobs/*.yml
 
 variables:

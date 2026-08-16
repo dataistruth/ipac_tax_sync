@@ -12,7 +12,7 @@ from util.paths import (
     client_transform_dir,
     generated_bundle_dir,
     generated_config_dir,
-    generated_schema_dir,
+    generated_config_schema_dir,
     src_common_dir,
     src_dir,
 )
@@ -99,9 +99,9 @@ def remove_generated_pipeline_artifacts() -> list[str]:
         for path in bundle_dir.glob("*.yml"):
             _unlink_generated(path, removed)
 
-    schema_dir = generated_schema_dir()
-    if schema_dir.exists():
-        for path in schema_dir.glob("*.yml"):
+    config_schema_dir = generated_config_schema_dir()
+    if config_schema_dir.exists():
+        for path in config_schema_dir.glob("*.yml"):
             _unlink_generated(path, removed)
 
     config_dir = generated_config_dir()

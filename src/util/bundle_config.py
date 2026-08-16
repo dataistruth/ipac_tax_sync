@@ -11,6 +11,8 @@ from util.paths import project_root
 UC_CATALOG_VAR_REF = "${var.uc_catalog}"
 UC_LKF_STAGING_SCHEMA_VAR_REF = "${var.uc_lkf_staging_schema}"
 IPAC_METADATA_SCHEMA_VAR_REF = "${var.ipac_metadata_schema}"
+METADATA_SCHEMA_CATALOG_REF = "${resources.schemas.schema_ipac_metadata.catalog_name}"
+METADATA_SCHEMA_NAME_REF = "${resources.schemas.schema_ipac_metadata.name}"
 PIPELINE_TAG_VAR_REF = "${var.pipeline_tag}"
 JOB_TAG_VAR_REF = "${var.job_tag}"
 PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF = "${var.pipeline_max_update_retry_attempts}"

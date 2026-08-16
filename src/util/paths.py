@@ -63,3 +63,8 @@ def generated_schema_dir() -> Path:
 
 def generated_config_dir() -> Path:
     return project_root() / "generated" / "config"
+
+
+def generated_config_schema_dir() -> Path:
+    """Bundle UC schema resources generated per client (deployed before pipelines)."""
+    return generated_config_dir() / "schema"

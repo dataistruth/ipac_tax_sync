@@ -1,4 +1,5 @@
-# Shared metadata schema — deployed before pipelines that publish event logs / process_log.
+# Shared metadata schema — deployed before pipelines (event_log, process_log, recon).
+# Client raw schemas: generated/config/schema/<client_nm>_schema.yml
 resources:
   schemas:
     schema_ipac_metadata:
