@@ -111,12 +111,9 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     tier = cluster_cfg.tiers[expected_job_tier_for_size(client.client_size)]
     assert f"min_workers: {tier.min_workers}" in yaml_text
     assert f"max_workers: {tier.max_workers}" in yaml_text
-    assert "event_log:" in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
-    assert "catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}" in yaml_text
-    assert "schema: ${resources.schemas.schema_ipac_metadata.name}" in yaml_text
-    assert "name: ingest_events_p_iPC_2025_Dev7_15350_1" in yaml_text
+    assert "event_log:" not in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")
@@ -182,8 +179,8 @@ def test_generate_yaml_splits_into_multiple_pipelines():
     assert "pipelines:" in yaml_text
     assert "schemas:" not in yaml_text.split("pipelines:")[0]
     assert "p_iPC_2025_Dev7_15350_1:" in yaml_text
-    assert "catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}" in yaml_text
-    assert "schema: ${resources.schemas.schema_ipac_metadata.name}" in yaml_text
+    assert "resources.schemas.schema_ipac_metadata" in yaml_text
+    assert "event_log:" not in yaml_text
 
 
 def test_enable_ct_sql_pk_only_no_cdc():

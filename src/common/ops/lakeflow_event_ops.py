@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
-from common.ops.recon_store import FlowMetricsRow, FlowSummaryRow, ingest_event_log_table_name
+from common.ops.recon_store import FlowMetricsRow, FlowSummaryRow
 
 FLOW_PROGRESS_EVENT = "flow_progress"
 MANAGED_INGESTION = "MANAGED_INGESTION"
@@ -29,7 +29,6 @@ class PipelineReconContext:
     pipeline_id: str = ""
     pipeline_name: str = ""
     client_nm: str = ""
-    event_log_table: str = ""
     tables: list[TableReconConfig] = field(default_factory=list)
 
 
@@ -45,17 +44,26 @@ def build_pipeline_recon_context(
         pipeline_id=pipeline_id,
         pipeline_name=pipeline_name or pipeline_key,
         client_nm=client_nm,
-        event_log_table=ingest_event_log_table_name(pipeline_key),
         tables=table_configs,
     )
 
 
+def _sql_escape(value: str) -> str:
+    return value.replace("'", "''")
+
+
 def flow_progress_extract_sql(
-    qualified_event_log_table: str,
+    pipeline_id: str,
     lookback_hours: int = 24,
+    since_timestamp: datetime | None = None,
 ) -> str:
-    """SQL to read new flow_progress METRICS from a published ingestion event log."""
-    table = qualified_event_log_table.strip()
+    """SQL to read flow_progress METRICS from a pipeline hidden event_log TVF."""
+    pid = _sql_escape(pipeline_id.strip())
+    if since_timestamp is not None:
+        ts = since_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        time_filter = f"AND timestamp > timestamp '{ts}'"
+    else:
+        time_filter = f"AND timestamp >= current_timestamp() - INTERVAL {int(lookback_hours)} HOURS"
     return f"""
 SELECT
     id AS event_id,
@@ -70,12 +78,12 @@ SELECT
     TRY_CAST(details:flow_progress:metrics:num_upserted_rows AS BIGINT) AS rows_upserted,
     TRY_CAST(details:flow_progress:metrics:num_deleted_rows AS BIGINT) AS rows_deleted,
     TRY_CAST(details:flow_progress:metrics:num_output_bytes AS BIGINT) AS output_bytes
-FROM {table}
+FROM event_log('{pid}')
 WHERE event_type = '{FLOW_PROGRESS_EVENT}'
   AND level = 'METRICS'
   AND origin.pipeline_type = '{MANAGED_INGESTION}'
   AND origin.flow_name IS NOT NULL
-  AND timestamp >= current_timestamp() - INTERVAL {int(lookback_hours)} HOURS
+  {time_filter}
 """.strip()
 
 

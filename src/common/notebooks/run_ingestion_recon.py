@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Ingestion flow metrics reconciliation
 # MAGIC
-# MAGIC Polls per-pipeline ingest event logs (`ingest_events_p_<client>_<n>`),
+# MAGIC Polls hidden `event_log(pipeline_id)` for pipelines with activity,
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
 # MAGIC optionally compares SQL Server Change Tracking for `recon_type` 2/3,
 # MAGIC writes `recon_ready` + `process_log` on PASS.
@@ -131,8 +131,9 @@ while True:
     )
     print(
         f"poll {iteration} complete: pipelines={totals['pipelines']} "
-        f"metrics={totals['metrics']} summaries={totals['summaries']} "
-        f"recon_ready={totals['recon_ready']}"
+        f"polled={totals['polled']} skipped={totals['skipped']} "
+        f"new_events={totals['new_events']} metrics={totals['metrics']} "
+        f"summaries={totals['summaries']} recon_ready={totals['recon_ready']}"
     )
     print(f"Sleeping {poll_interval_sec}s...")
     time.sleep(poll_interval_sec)

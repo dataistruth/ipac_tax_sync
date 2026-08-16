@@ -15,7 +15,14 @@ from common.ops.lakeflow_event_ops import (
     parse_flow_progress_event,
     TableReconConfig,
 )
-from common.ops.pipeline_job_ops import DatabricksRestClient, _select_pipelines_for_ops
+from common.ops.pipeline_job_ops import (
+    ACTIVE_UPDATE_STATES,
+    DatabricksRestClient,
+    FAILED_STATES,
+    _latest_update_block,
+    _pipeline_state_label,
+    _select_pipelines_for_ops,
+)
 from common.ops.process_log_store import (
     ARTIFACT_TYPE_PIPELINE,
     PROCESS_TYPE_INGEST,
@@ -26,9 +33,11 @@ from common.ops.recon_store import (
     FlowMetricsRow,
     FlowSummaryRow,
     ReconReadyRow,
-    ingest_event_log_table_name,
+    ReconEventLogWatermark,
     qualified_table,
+    read_recon_event_log_watermarks,
     RECON_READY_TABLE,
+    upsert_recon_event_log_watermark,
     write_flow_metrics_rows,
     write_flow_summary_rows,
     write_recon_ready_rows,
@@ -67,25 +76,97 @@ def resolve_pipeline_id(pipeline_key: str, client: DatabricksRestClient | None =
     return ""
 
 
-def event_log_qualified(catalog: str, metadata_schema: str, event_log_table: str) -> str:
-    return qualified_table(catalog, metadata_schema, event_log_table)
+def pipeline_needs_event_log_poll(
+    detail: dict[str, Any],
+    watermark: ReconEventLogWatermark | None,
+) -> tuple[bool, str]:
+    """REST pre-filter: skip hidden event_log query when pipeline has no new activity."""
+    latest = _latest_update_block(detail)
+    update_id = str(latest.get("update_id") or "").strip()
+    update_state = str(latest.get("state", "")).upper()
+    pipeline_state = _pipeline_state_label(detail)
 
+    if watermark is None:
+        return True, "initial scan"
 
-def table_exists(spark, qualified_name: str) -> bool:
-    try:
-        spark.sql(f"SELECT 1 FROM {qualified_name} LIMIT 1")
-        return True
-    except Exception:
-        return False
+    if update_id and update_id != watermark.last_update_id:
+        return True, f"new update_id={update_id}"
+
+    if update_state in ACTIVE_UPDATE_STATES:
+        return True, f"active update_state={update_state}"
+
+    if update_state in FAILED_STATES:
+        return True, f"failed update_state={update_state}"
+
+    if pipeline_state == "RUNNING":
+        return True, "pipeline_state=RUNNING"
+
+    if update_state == "COMPLETED" and watermark.last_api_update_state != "COMPLETED":
+        return True, "transition to COMPLETED"
+
+    if watermark.last_update_id == update_id and update_state in ("COMPLETED", "IDLE", "STOPPED", ""):
+        return False, f"steady terminal update_state={update_state or 'NONE'}"
+
+    return True, f"update_state={update_state or 'UNKNOWN'}"
 
 
 def fetch_flow_progress_rows(
     spark,
-    qualified_event_log: str,
+    pipeline_id: str,
     lookback_hours: int,
+    since_timestamp: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    sql = flow_progress_extract_sql(qualified_event_log, lookback_hours)
-    return [row.asDict() for row in spark.sql(sql).collect()]
+    sql = flow_progress_extract_sql(
+        pipeline_id,
+        lookback_hours=lookback_hours,
+        since_timestamp=since_timestamp,
+    )
+    try:
+        return [row.asDict() for row in spark.sql(sql).collect()]
+    except Exception as exc:
+        print(f"WARN event_log query failed for pipeline_id={pipeline_id}: {exc}")
+        return []
+
+
+def _watermark_from_rows_and_api(
+    pipeline_id: str,
+    pipeline_key: str,
+    pipeline_rows: list[dict[str, Any]],
+    detail: dict[str, Any],
+    previous: ReconEventLogWatermark | None,
+    polled_at: datetime,
+) -> ReconEventLogWatermark:
+    latest = _latest_update_block(detail)
+    update_id = str(latest.get("update_id") or "").strip()
+    update_state = str(latest.get("state", "")).upper()
+
+    last_event_ts = previous.last_event_ts if previous else None
+    last_event_id = previous.last_event_id if previous else ""
+    for row in pipeline_rows:
+        event_ts = row.get("event_timestamp")
+        if isinstance(event_ts, datetime):
+            if last_event_ts is None or event_ts > last_event_ts:
+                last_event_ts = event_ts
+        event_id = str(row.get("event_id") or "").strip()
+        if event_id:
+            last_event_id = event_id
+
+    if not update_id:
+        for row in pipeline_rows:
+            row_update = str(row.get("update_id") or "").strip()
+            if row_update:
+                update_id = row_update
+                break
+
+    return ReconEventLogWatermark(
+        pipeline_id=pipeline_id,
+        pipeline_key=pipeline_key,
+        last_event_ts=last_event_ts,
+        last_event_id=last_event_id,
+        last_update_id=update_id,
+        last_api_update_state=update_state,
+        last_poll_at=polled_at,
+    )
 
 
 def recon_already_recorded(
@@ -112,7 +193,6 @@ def recon_already_recorded(
         return False
 
 
-
 def run_pipeline_recon(
     spark,
     catalog: str,
@@ -120,22 +200,15 @@ def run_pipeline_recon(
     ctx: Any,
     src_catalog: str,
     src_schema: str,
-    lookback_hours: int = 24,
+    pipeline_rows: list[dict[str, Any]],
     rest_client: DatabricksRestClient | None = None,
 ) -> tuple[int, int, int]:
     """
-    Run recon for one ingestion pipeline context.
+    Run recon for one ingestion pipeline context from pre-fetched event_log rows.
     Returns (metrics_merged, summaries_written, recon_ready_written).
     """
     if not ctx.pipeline_id:
         ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
-
-    el_name = ctx.event_log_table or ingest_event_log_table_name(ctx.pipeline_key)
-    qualified_el = event_log_qualified(catalog, metadata_schema, el_name)
-    if not table_exists(spark, qualified_el):
-        print(f"SKIP event log not found: {qualified_el}")
-        return 0, 0, 0
-    pipeline_rows = fetch_flow_progress_rows(spark, qualified_el, lookback_hours)
 
     metrics: list[FlowMetricsRow] = []
     for row in pipeline_rows:
@@ -144,6 +217,9 @@ def run_pipeline_recon(
             if not parsed.pipeline_id and ctx.pipeline_id:
                 parsed.pipeline_id = ctx.pipeline_id
             metrics.append(parsed)
+
+    if not metrics:
+        return 0, 0, 0
 
     merged = write_flow_metrics_rows(spark, catalog, metadata_schema, metrics)
     summaries = aggregate_flow_metrics(metrics, ctx.tables)
@@ -243,13 +319,92 @@ def run_all_pipeline_recon(
     pipeline_contexts: list[tuple[Any, str, str]],
     lookback_hours: int = 24,
 ) -> dict[str, int]:
-    """Run recon for each (PipelineReconContext, src_catalog, src_schema)."""
-    totals = {"metrics": 0, "summaries": 0, "recon_ready": 0, "pipelines": 0}
+    """Poll hidden event logs only for pipelines with activity; recon changed flows."""
+    totals = {
+        "metrics": 0,
+        "summaries": 0,
+        "recon_ready": 0,
+        "pipelines": 0,
+        "polled": 0,
+        "skipped": 0,
+        "new_events": 0,
+    }
     client = DatabricksRestClient()
+    polled_at = datetime.now(timezone.utc)
 
-    for ctx, src_catalog, src_schema in pipeline_contexts:
+    pipeline_ids = [ctx.pipeline_id for ctx, _, _ in pipeline_contexts if ctx.pipeline_id]
+    for ctx, _, _ in pipeline_contexts:
         if not ctx.pipeline_id:
             ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, client)
+        if ctx.pipeline_id:
+            pipeline_ids.append(ctx.pipeline_id)
+    watermarks = read_recon_event_log_watermarks(
+        spark,
+        catalog,
+        metadata_schema,
+        sorted(set(pipeline_ids)),
+    )
+
+    for ctx, src_catalog, src_schema in pipeline_contexts:
+        totals["pipelines"] += 1
+        if not ctx.pipeline_id:
+            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, client)
+        if not ctx.pipeline_id:
+            print(f"{ctx.pipeline_key}: SKIP no pipeline_id")
+            totals["skipped"] += 1
+            continue
+
+        detail = client.get(f"/api/2.0/pipelines/{ctx.pipeline_id}") or {}
+        watermark = watermarks.get(ctx.pipeline_id)
+        needs_poll, reason = pipeline_needs_event_log_poll(detail, watermark)
+
+        if not needs_poll:
+            upsert_recon_event_log_watermark(
+                spark,
+                catalog,
+                metadata_schema,
+                _watermark_from_rows_and_api(
+                    ctx.pipeline_id,
+                    ctx.pipeline_key,
+                    [],
+                    detail,
+                    watermark,
+                    polled_at,
+                ),
+            )
+            print(f"{ctx.pipeline_key}: SKIP no activity ({reason})")
+            totals["skipped"] += 1
+            continue
+
+        since_ts = watermark.last_event_ts if watermark else None
+        print(f"{ctx.pipeline_key}: polling hidden event_log ({reason})")
+        pipeline_rows = fetch_flow_progress_rows(
+            spark,
+            ctx.pipeline_id,
+            lookback_hours=lookback_hours,
+            since_timestamp=since_ts,
+        )
+        totals["polled"] += 1
+        totals["new_events"] += len(pipeline_rows)
+
+        upsert_recon_event_log_watermark(
+            spark,
+            catalog,
+            metadata_schema,
+            _watermark_from_rows_and_api(
+                ctx.pipeline_id,
+                ctx.pipeline_key,
+                pipeline_rows,
+                detail,
+                watermark,
+                polled_at,
+            ),
+        )
+
+        if not pipeline_rows:
+            print(f"{ctx.pipeline_key}: no new flow_progress events")
+            continue
+
         m, s, r = run_pipeline_recon(
             spark,
             catalog,
@@ -257,16 +412,14 @@ def run_all_pipeline_recon(
             ctx,
             src_catalog,
             src_schema,
-            lookback_hours=lookback_hours,
+            pipeline_rows=pipeline_rows,
             rest_client=client,
         )
         totals["metrics"] += m
         totals["summaries"] += s
         totals["recon_ready"] += r
-        totals["pipelines"] += 1
-        print(
-            f"{ctx.pipeline_key}: metrics_merged={m} summaries={s} recon_ready={r}"
-        )
+        print(f"{ctx.pipeline_key}: metrics_merged={m} summaries={s} recon_ready={r}")
+
     return totals
 
 

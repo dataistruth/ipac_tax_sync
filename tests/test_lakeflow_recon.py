@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from common.ops.ingestion_recon_ops import pipeline_needs_event_log_poll
 from common.ops.lakeflow_event_ops import (
     aggregate_flow_metrics,
     build_pipeline_recon_context,
@@ -11,7 +12,7 @@ from common.ops.lakeflow_event_ops import (
     resolve_table_from_flow_name,
     TableReconConfig,
 )
-from common.ops.recon_store import ingest_event_log_table_name
+from common.ops.recon_store import ReconEventLogWatermark
 from common.ops.source_ct_ops import (
     build_ct_count_sql,
     build_federated_ct_count_sql,
@@ -33,16 +34,53 @@ def _table_cfg() -> list[TableReconConfig]:
     ]
 
 
-def test_ingest_event_log_table_name_per_pipeline():
-    assert ingest_event_log_table_name("p_client_1") == "ingest_events_p_client_1"
-    assert ingest_event_log_table_name("p_iPC_2025_Dev7_15350_2") == "ingest_events_p_iPC_2025_Dev7_15350_2"
-
-
-def test_flow_progress_extract_sql_filters_managed_ingestion():
-    sql = flow_progress_extract_sql("cat.schema.ingest_events", lookback_hours=6)
+def test_flow_progress_extract_sql_uses_hidden_event_log():
+    sql = flow_progress_extract_sql("pid-abc", lookback_hours=6)
+    assert "event_log('pid-abc')" in sql
     assert "MANAGED_INGESTION" in sql
     assert "flow_progress" in sql
     assert "INTERVAL 6 HOURS" in sql
+
+
+def test_flow_progress_extract_sql_since_timestamp():
+    since = datetime(2026, 8, 15, 10, 0, 0, tzinfo=timezone.utc)
+    sql = flow_progress_extract_sql("pid-abc", since_timestamp=since)
+    assert "timestamp > timestamp '2026-08-15 10:00:00'" in sql
+    assert "INTERVAL" not in sql
+
+
+def test_pipeline_needs_event_log_poll_initial():
+    needs, reason = pipeline_needs_event_log_poll({"state": "RUNNING"}, None)
+    assert needs
+    assert "initial" in reason
+
+
+def test_pipeline_needs_event_log_poll_skips_steady_terminal():
+    wm = ReconEventLogWatermark(
+        pipeline_id="pid-1",
+        last_update_id="upd-1",
+        last_api_update_state="COMPLETED",
+        last_poll_at=_ts(1),
+    )
+    detail = {
+        "state": "IDLE",
+        "latest_update": {"update_id": "upd-1", "state": "COMPLETED"},
+    }
+    needs, reason = pipeline_needs_event_log_poll(detail, wm)
+    assert not needs
+    assert "steady" in reason
+
+
+def test_pipeline_needs_event_log_poll_new_update_id():
+    wm = ReconEventLogWatermark(
+        pipeline_id="pid-1",
+        last_update_id="upd-1",
+        last_api_update_state="COMPLETED",
+    )
+    detail = {"latest_update": {"update_id": "upd-2", "state": "RUNNING"}}
+    needs, reason = pipeline_needs_event_log_poll(detail, wm)
+    assert needs
+    assert "new update_id" in reason
 
 
 def test_parse_and_aggregate_completed_flow():

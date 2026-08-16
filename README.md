@@ -228,7 +228,7 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 ### Ingestion flow metrics reconciliation
 
-Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls published MANAGED_INGESTION event logs (`ingest_events_p_*` in `{uc_catalog}.{ipac_metadata_schema}`), aggregates per-table `flow_progress` when status = `COMPLETED`, and writes:
+Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls hidden MANAGED_INGESTION event logs via `event_log(pipeline_id)` for pipelines with activity, aggregates per-table `flow_progress` when status = `COMPLETED`, and writes:
 
 - `lakeflow_flow_metrics` — raw event metrics (merge by `event_id`)
 - `lakeflow_flow_summary` — per `(update_id, flow_name)` aggregates
@@ -239,7 +239,7 @@ Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `va
 
 Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_ct_ops.py`, `recon_store.py`.
 
-Generated pipelines include `event_log` publishing — regenerate and redeploy after upgrading:
+Generated pipelines no longer publish UC event logs — recon reads the platform hidden log. Regenerate and redeploy after upgrading:
 
 ```bash
 ./ipac-delta-sync generate

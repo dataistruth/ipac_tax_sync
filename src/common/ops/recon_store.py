@@ -12,6 +12,7 @@ ReconStatus = Literal["PENDING", "PASS", "FAIL", "SKIPPED"]
 FLOW_METRICS_TABLE = "lakeflow_flow_metrics"
 FLOW_SUMMARY_TABLE = "lakeflow_flow_summary"
 RECON_READY_TABLE = "recon_ready"
+RECON_EVENT_LOG_WATERMARK_TABLE = "recon_event_log_watermark"
 
 
 @dataclass
@@ -146,12 +147,43 @@ def qualified_table(catalog: str, schema: str, table: str) -> str:
     return f"{catalog}.{schema}.{table}"
 
 
-def ingest_event_log_table_name(pipeline_key: str) -> str:
-    """Per-pipeline published UC event log (each pipeline creates its own table)."""
-    key = pipeline_key.strip()
-    if not key:
-        raise ValueError("pipeline_key is required for ingest event log table name")
-    return f"ingest_events_{key}"
+@dataclass
+class ReconEventLogWatermark:
+    pipeline_id: str
+    pipeline_key: str = ""
+    last_event_ts: datetime | None = None
+    last_event_id: str = ""
+    last_update_id: str = ""
+    last_api_update_state: str = ""
+    last_poll_at: datetime | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "pipeline_id": self.pipeline_id,
+            "pipeline_key": self.pipeline_key,
+            "last_event_ts": self.last_event_ts,
+            "last_event_id": self.last_event_id,
+            "last_update_id": self.last_update_id,
+            "last_api_update_state": self.last_api_update_state,
+            "last_poll_at": self.last_poll_at,
+        }
+
+
+def recon_event_log_watermark_create_sql(catalog: str, schema: str) -> str:
+    table = qualified_table(catalog, schema, RECON_EVENT_LOG_WATERMARK_TABLE)
+    return f"""
+CREATE TABLE IF NOT EXISTS {table} (
+  pipeline_id STRING NOT NULL COMMENT 'Databricks pipeline UUID',
+  pipeline_key STRING COMMENT 'Logical bundle key p_<client>_<n>',
+  last_event_ts TIMESTAMP COMMENT 'Max event_timestamp captured from hidden event_log',
+  last_event_id STRING COMMENT 'Latest flow_progress event id seen',
+  last_update_id STRING COMMENT 'Latest pipeline update_id from API or events',
+  last_api_update_state STRING COMMENT 'latest_update.state from last REST poll',
+  last_poll_at TIMESTAMP COMMENT 'When recon monitor last evaluated this pipeline'
+)
+USING DELTA
+COMMENT 'Per-pipeline watermark for hidden event_log polling'
+""".strip()
 
 
 def lakeflow_flow_metrics_create_sql(catalog: str, schema: str) -> str:
@@ -238,6 +270,7 @@ COMMENT 'PASS rows only — gate for ipac-sdt-calc'
 def all_recon_tables_create_sql(catalog: str, schema: str) -> str:
     return "\n\n".join(
         [
+            recon_event_log_watermark_create_sql(catalog, schema),
             lakeflow_flow_metrics_create_sql(catalog, schema),
             lakeflow_flow_summary_create_sql(catalog, schema),
             recon_ready_create_sql(catalog, schema),
@@ -249,6 +282,7 @@ def ensure_recon_tables(spark, catalog: str, schema: str) -> None:
     from common.ops.uc_schema_ops import ensure_uc_schema
 
     ensure_uc_schema(spark, catalog, schema)
+    spark.sql(recon_event_log_watermark_create_sql(catalog, schema))
     spark.sql(lakeflow_flow_metrics_create_sql(catalog, schema))
     spark.sql(lakeflow_flow_summary_create_sql(catalog, schema))
     spark.sql(recon_ready_create_sql(catalog, schema))
@@ -336,6 +370,100 @@ def _create_typed_dataframe(spark, rows: list[dict[str, Any]], schema) -> Any:
     if not rows:
         return spark.createDataFrame([], schema)
     return spark.createDataFrame(rows, schema=schema)
+
+
+def read_recon_event_log_watermarks(
+    spark,
+    catalog: str,
+    schema: str,
+    pipeline_ids: list[str] | None = None,
+) -> dict[str, ReconEventLogWatermark]:
+    ensure_recon_tables(spark, catalog, schema)
+    target = qualified_table(catalog, schema, RECON_EVENT_LOG_WATERMARK_TABLE)
+    try:
+        df = spark.table(target)
+        if pipeline_ids:
+            ids = [pid.replace("'", "''") for pid in pipeline_ids if pid]
+            if ids:
+                in_list = ", ".join(f"'{pid}'" for pid in ids)
+                df = df.filter(f"pipeline_id IN ({in_list})")
+        rows = df.collect()
+    except Exception:
+        return {}
+
+    out: dict[str, ReconEventLogWatermark] = {}
+    for row in rows:
+        data = row.asDict()
+        pid = str(data.get("pipeline_id") or "").strip()
+        if not pid:
+            continue
+        out[pid] = ReconEventLogWatermark(
+            pipeline_id=pid,
+            pipeline_key=str(data.get("pipeline_key") or "").strip(),
+            last_event_ts=data.get("last_event_ts"),
+            last_event_id=str(data.get("last_event_id") or "").strip(),
+            last_update_id=str(data.get("last_update_id") or "").strip(),
+            last_api_update_state=str(data.get("last_api_update_state") or "").strip().upper(),
+            last_poll_at=data.get("last_poll_at"),
+        )
+    return out
+
+
+def upsert_recon_event_log_watermark(
+    spark,
+    catalog: str,
+    schema: str,
+    watermark: ReconEventLogWatermark,
+) -> None:
+    ensure_recon_tables(spark, catalog, schema)
+    target = qualified_table(catalog, schema, RECON_EVENT_LOG_WATERMARK_TABLE)
+    from pyspark.sql.types import StringType, StructField, StructType, TimestampType
+
+    schema_def = StructType(
+        [
+            StructField("pipeline_id", StringType(), False),
+            StructField("pipeline_key", StringType(), True),
+            StructField("last_event_ts", TimestampType(), True),
+            StructField("last_event_id", StringType(), True),
+            StructField("last_update_id", StringType(), True),
+            StructField("last_api_update_state", StringType(), True),
+            StructField("last_poll_at", TimestampType(), True),
+        ]
+    )
+    df = spark.createDataFrame([watermark.as_dict()], schema=schema_def)
+    df.createOrReplaceTempView("new_recon_watermark")
+    spark.sql(
+        f"""
+        MERGE INTO {target} AS target
+        USING new_recon_watermark AS source
+        ON target.pipeline_id = source.pipeline_id
+        WHEN MATCHED THEN UPDATE SET
+          pipeline_key = source.pipeline_key,
+          last_event_ts = source.last_event_ts,
+          last_event_id = source.last_event_id,
+          last_update_id = source.last_update_id,
+          last_api_update_state = source.last_api_update_state,
+          last_poll_at = source.last_poll_at
+        WHEN NOT MATCHED THEN INSERT (
+          pipeline_id,
+          pipeline_key,
+          last_event_ts,
+          last_event_id,
+          last_update_id,
+          last_api_update_state,
+          last_poll_at
+        )
+        VALUES (
+          source.pipeline_id,
+          source.pipeline_key,
+          source.last_event_ts,
+          source.last_event_id,
+          source.last_update_id,
+          source.last_api_update_state,
+          source.last_poll_at
+        )
+        """
+    )
 
 
 def write_flow_metrics_rows(
