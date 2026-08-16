@@ -1,0 +1,18 @@
+resources:
+  jobs:
+    ensure_uc_schemas:
+      name: j_ipac_delta_sync_ensure_uc_schemas
+      max_concurrent_runs: 1
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.grant_group}
+      tags:
+        bundle: ${var.job_tag}
+      tasks:
+        - task_key: ensure_uc_schemas
+          notebook_task:
+            notebook_path: ${workspace.file_path}/src/common/notebooks/ensure_uc_schemas.py
+            base_parameters:
+              uc_catalog: ${var.uc_catalog}
+              ipac_metadata_schema: ${var.ipac_metadata_schema}
+              dest_schema_suffix: ${var.dest_schema_suffix}
