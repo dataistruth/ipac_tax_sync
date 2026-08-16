@@ -44,6 +44,7 @@ from util.pipeline_generator import (
     write_bundle_pipeline_yaml,
 )
 from util.generated_verify import find_embedded_schemas_in_bundle, find_stale_generated_suffix_markers
+from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
 from util.sql_generator import write_source_replication_sql
