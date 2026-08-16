@@ -218,7 +218,7 @@ databricks bundle deploy --select pipelines.p_client_a_1,pipelines.p_client_a_2
 
 Bundle also defines two jobs under `resources/jobs/pipeline_heartbeat_jobs.yml`:
 
-- `j_ipac_delta_sync_pipeline_heartbeat_monitor` — **continuous** job (UNPAUSED) that polls `p_*` pipeline status every `heartbeat_interval_sec` and fails (email alert) when unhealthy.
+- `j_ipac_delta_sync_pipeline_heartbeat_monitor` — **continuous** job (UNPAUSED) that polls `p_*` pipeline status every `heartbeat_interval_sec`, writes `process_log`, alerts on unhealthy pipelines, and keeps polling (does not fail the job).
 - `j_ipac_delta_sync_pipeline_failed_restart` — **continuous** job that polls `process_log` every `heartbeat_interval_sec`. For each monitored pipeline with latest ingest status `FAILED` and no active pipeline update (`RUNNING` / `RESTARTING` / …), emails `heartbeat_job_alert_mail` with failure time and error summary, then calls the pipeline restart API. Optional SMTP via env vars `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` (or secrets scope `ipac-alerts`).
 
 Both jobs run as **serverless notebook tasks** (no Spark session, no pip dependencies).

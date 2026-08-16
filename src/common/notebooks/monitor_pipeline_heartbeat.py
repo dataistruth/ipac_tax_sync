@@ -5,7 +5,7 @@
 # MAGIC Continuous job: polls `p_*` pipeline status every `heartbeat_interval_sec`,
 # MAGIC appends ingest poll rows to `{uc_catalog}.{ipac_metadata_schema}.process_log`
 # MAGIC (shared table for ingest, calc, transfer, and other process types).
-# MAGIC (email on_failure) when any pipeline is unhealthy.
+# MAGIC Alerts on unhealthy pipelines but does not fail the job — restart job handles FAILED pipelines.
 
 # COMMAND ----------
 
@@ -14,12 +14,14 @@ dbutils.widgets.text("heartbeat_interval_sec", "900", "Poll interval + stale thr
 dbutils.widgets.text("pipeline_names_file", "", "Generated pipeline_names.json path")
 dbutils.widgets.text("uc_catalog", "ipac_tax_synch", "UC catalog for process_log")
 dbutils.widgets.text("ipac_metadata_schema", "ipac_metadata", "Metadata schema for process_log")
+dbutils.widgets.text("heartbeat_job_alert_mail", "", "Alert email for unhealthy pipeline detection")
 
 name_prefix = dbutils.widgets.get("name_prefix").strip() or "p_"
 heartbeat_interval_sec = int(dbutils.widgets.get("heartbeat_interval_sec").strip() or "900")
 pipeline_names_file = dbutils.widgets.get("pipeline_names_file").strip()
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
+alert_email = dbutils.widgets.get("heartbeat_job_alert_mail").strip()
 
 try:
     monitor_run_id = (
@@ -34,6 +36,7 @@ print(f"heartbeat_interval_sec : {heartbeat_interval_sec}")
 print(f"pipeline_names_file    : {pipeline_names_file or '(prefix scan only)'}")
 print(f"process_log table      : {uc_catalog}.{metadata_schema}.process_log")
 print(f"monitor_run_id         : {monitor_run_id}")
+print(f"heartbeat_job_alert_mail: {alert_email or '(not set — logs only)'}")
 
 # COMMAND ----------
 
@@ -45,6 +48,7 @@ src_root = f"{repo_root}/src"
 if src_root not in sys.path:
     sys.path.insert(0, src_root)
 
+from common.ops.alert_ops import configure_smtp_from_dbutils
 from common.ops.pipeline_job_ops import configure_dbutils, run_monitor_loop
 from common.ops.pipeline_names import load_pipeline_names
 from common.ops.process_log_store import (
@@ -53,6 +57,7 @@ from common.ops.process_log_store import (
 )
 
 configure_dbutils(dbutils)
+configure_smtp_from_dbutils(dbutils)
 
 if pipeline_names_file:
     monitored = load_pipeline_names(pipeline_names_file)
@@ -73,4 +78,5 @@ run_monitor_loop(
     pipeline_names_file,
     monitor_run_id=str(monitor_run_id),
     on_poll=_log_poll_to_delta,
+    alert_email=alert_email,
 )

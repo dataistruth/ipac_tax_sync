@@ -519,10 +519,11 @@ def run_monitor(
 
     if unhealthy:
         joined = "\n".join(unhealthy)
-        raise RuntimeError(f"Unhealthy continuous pipeline(s):\n{joined}")
+        print(f"WARN unhealthy continuous pipeline(s) ({len(unhealthy)}):\n{joined}")
+    else:
+        print("All monitored continuous pipelines are healthy.")
 
-    print("All monitored continuous pipelines are healthy.")
-    return 0, snapshots
+    return len(unhealthy), snapshots
 
 
 def run_monitor_loop(
@@ -533,8 +534,11 @@ def run_monitor_loop(
     max_iterations: int | None = None,
     monitor_run_id: str = "",
     on_poll: Callable[[list[PipelinePollSnapshot]], None] | None = None,
+    alert_email: str = "",
 ) -> int:
-    """Poll pipeline status every poll_interval_sec until unhealthy or max_iterations."""
+    """Poll pipeline status every poll_interval_sec; log unhealthy pipelines without failing."""
+    from common.ops.alert_ops import notify_unhealthy_pipelines
+
     interval = poll_interval_sec if poll_interval_sec is not None else heartbeat_interval_sec
     if interval <= 0:
         raise ValueError("poll_interval_sec must be positive")
@@ -547,7 +551,7 @@ def run_monitor_loop(
     while max_iterations is None or iteration < max_iterations:
         iteration += 1
         print(f"--- poll {iteration} ---")
-        _, snapshots = run_monitor(
+        unhealthy_count, snapshots = run_monitor(
             name_prefix,
             heartbeat_interval_sec,
             pipeline_names_file,
@@ -556,6 +560,14 @@ def run_monitor_loop(
         )
         if on_poll:
             on_poll(snapshots)
+        if unhealthy_count > 0:
+            unhealthy_details = [
+                (snap.display_name, snap.pipeline_id, snap.reason)
+                for snap in snapshots
+                if not snap.healthy
+            ]
+            if alert_email:
+                notify_unhealthy_pipelines(alert_email, unhealthy_details, poll_iteration=iteration)
         if max_iterations is not None and iteration >= max_iterations:
             break
         print(f"Sleeping {interval}s until next poll...")
@@ -748,12 +760,12 @@ def main() -> int:
                 args.pipeline_names_file,
                 max_iterations=args.max_iterations,
             )
-        code, _ = run_monitor(
+        unhealthy_count, _ = run_monitor(
             args.name_prefix,
             args.heartbeat_interval_sec,
             args.pipeline_names_file,
         )
-        return code
+        return 1 if unhealthy_count else 0
     return run_restart(args.name_prefix, args.restart_limit, args.pipeline_names_file)
 
 

@@ -279,7 +279,6 @@ def test_run_monitor_loop_single_iteration(tmp_path):
             }
         }
     )
-    # Patch DatabricksRestClient in run_monitor path
     from common.ops import pipeline_job_ops
 
     original = pipeline_job_ops.DatabricksRestClient
@@ -289,5 +288,65 @@ def test_run_monitor_loop_single_iteration(tmp_path):
     try:
         rc = run_monitor_loop("p_", 900, str(registry), max_iterations=1)
         assert rc == 0
+    finally:
+        pipeline_job_ops.DatabricksRestClient = original
+
+
+def test_run_monitor_does_not_raise_on_unhealthy(tmp_path):
+    client = _DetailClient(
+        {
+            "pid-1": {
+                "spec": {"continuous": True},
+                "state": {"latest_update": {"state": "FAILED", "start_time": 1_700_000_000_000}},
+            }
+        }
+    )
+    from common.ops import pipeline_job_ops
+
+    original = pipeline_job_ops.DatabricksRestClient
+    pipeline_job_ops.DatabricksRestClient = lambda *a, **k: client  # type: ignore[misc]
+    registry = tmp_path / "pipeline_names.json"
+    registry.write_text('{"pipelines": ["p_test_1"]}', encoding="utf-8")
+    try:
+        unhealthy_count, snapshots = pipeline_job_ops.run_monitor("p_", 900, str(registry))
+        assert unhealthy_count == 1
+        assert len(snapshots) == 1
+        assert not snapshots[0].healthy
+    finally:
+        pipeline_job_ops.DatabricksRestClient = original
+
+
+def test_run_monitor_loop_continues_when_unhealthy(tmp_path, monkeypatch):
+    client = _DetailClient(
+        {
+            "pid-1": {
+                "spec": {"continuous": True},
+                "state": {"latest_update": {"state": "FAILED", "start_time": 1_700_000_000_000}},
+            }
+        }
+    )
+    from common.ops import pipeline_job_ops
+
+    monkeypatch.setattr(pipeline_job_ops.time, "sleep", lambda _sec: None)
+    original = pipeline_job_ops.DatabricksRestClient
+    pipeline_job_ops.DatabricksRestClient = lambda *a, **k: client  # type: ignore[misc]
+    registry = tmp_path / "pipeline_names.json"
+    registry.write_text('{"pipelines": ["p_test_1"]}', encoding="utf-8")
+    poll_calls = 0
+
+    def on_poll(_snapshots):
+        nonlocal poll_calls
+        poll_calls += 1
+
+    try:
+        rc = run_monitor_loop(
+            "p_",
+            900,
+            str(registry),
+            max_iterations=2,
+            on_poll=on_poll,
+        )
+        assert rc == 0
+        assert poll_calls == 2
     finally:
         pipeline_job_ops.DatabricksRestClient = original

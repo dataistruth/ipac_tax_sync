@@ -1,4 +1,4 @@
-"""Alert notifications for pipeline restart (stdlib only)."""
+"""Alert notifications for pipeline monitoring and restart (stdlib only)."""
 
 from __future__ import annotations
 
@@ -45,6 +45,32 @@ def format_pipeline_restart_alert(
     return subject, body
 
 
+def format_unhealthy_pipelines_alert(
+    unhealthy: list[tuple[str, str, str]],
+    poll_iteration: int = 0,
+) -> tuple[str, str]:
+    """Return (subject, body) for unhealthy pipeline heartbeat alert."""
+    count = len(unhealthy)
+    subject = f"[ipac_delta_sync] {count} unhealthy pipeline(s) detected"
+    lines = [
+        "iPAC Delta Sync pipeline heartbeat alert",
+        "",
+        f"Poll iteration: {poll_iteration}",
+        f"Unhealthy pipelines: {count}",
+        "",
+    ]
+    for display_name, pipeline_id, reason in unhealthy:
+        lines.append(f"- {display_name} ({pipeline_id})")
+        lines.append(f"  {reason}")
+        lines.append("")
+    lines.append(
+        "The heartbeat monitor job continues polling. "
+        "Failed pipelines with no active update are restarted by "
+        "j_ipac_delta_sync_pipeline_failed_restart."
+    )
+    return subject, "\n".join(lines)
+
+
 def send_alert_email(
     to_email: str,
     subject: str,
@@ -89,6 +115,14 @@ def send_alert_email(
         return False
 
 
+def _print_alert_fallback(to_email: str, subject: str, body: str) -> None:
+    print("--- ALERT EMAIL (SMTP not configured; set SMTP_HOST etc.) ---")
+    print(f"To: {to_email}")
+    print(f"Subject: {subject}")
+    print(body)
+    print("--- end alert ---")
+
+
 def notify_pipeline_restart(
     to_email: str,
     pipeline_display_name: str,
@@ -107,11 +141,21 @@ def notify_pipeline_restart(
     )
     if send_alert_email(to_email, subject, body):
         return
-    print("--- ALERT EMAIL (SMTP not configured; set SMTP_HOST etc.) ---")
-    print(f"To: {to_email}")
-    print(f"Subject: {subject}")
-    print(body)
-    print("--- end alert ---")
+    _print_alert_fallback(to_email, subject, body)
+
+
+def notify_unhealthy_pipelines(
+    to_email: str,
+    unhealthy: list[tuple[str, str, str]],
+    poll_iteration: int = 0,
+) -> None:
+    """Send unhealthy heartbeat alert or print body when SMTP is not configured."""
+    if not unhealthy:
+        return
+    subject, body = format_unhealthy_pipelines_alert(unhealthy, poll_iteration=poll_iteration)
+    if send_alert_email(to_email, subject, body):
+        return
+    _print_alert_fallback(to_email, subject, body)
 
 
 def configure_smtp_from_dbutils(dbutils: Any, scope: str = "ipac-alerts") -> None:
