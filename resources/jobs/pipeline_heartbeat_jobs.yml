@@ -39,6 +39,8 @@ resources:
       email_notifications:
         on_failure:
           - ${var.heartbeat_job_alert_mail}
+      continuous:
+        pause_status: UNPAUSED
       tasks:
         - task_key: restart_failed_continuous_pipelines
           notebook_task:
@@ -46,4 +48,8 @@ resources:
             base_parameters:
               name_prefix: p_
               restart_limit: "25"
+              poll_interval_sec: ${var.heartbeat_interval_sec}
               pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
+              uc_catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}
+              ipac_metadata_schema: ${resources.schemas.schema_ipac_metadata.name}
+              heartbeat_job_alert_mail: ${var.heartbeat_job_alert_mail}

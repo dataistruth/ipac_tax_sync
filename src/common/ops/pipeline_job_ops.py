@@ -473,6 +473,13 @@ def _is_failed_continuous(detail: dict[str, Any]) -> tuple[bool, str]:
     return False, f"latest_update.state={update_state or 'UNKNOWN'}"
 
 
+def _is_pipeline_update_active(detail: dict[str, Any]) -> bool:
+    """True when the pipeline has an in-flight update (including restart)."""
+    latest_update = _latest_update_block(detail)
+    state = str(latest_update.get("state", "")).upper()
+    return state in ACTIVE_UPDATE_STATES
+
+
 def run_monitor(
     name_prefix: str,
     heartbeat_interval_sec: int,
@@ -560,15 +567,50 @@ def run_restart(
     name_prefix: str,
     restart_limit: int,
     pipeline_names_file: str,
+    spark: Any | None = None,
+    uc_catalog: str = "",
+    metadata_schema: str = "",
+    alert_email: str = "",
 ) -> int:
+    """
+    Restart failed continuous pipelines.
+
+    When spark + catalog + schema are provided, uses latest process_log ingest rows
+    for monitored pipeline keys. Restarts only when process_log shows FAILED and the
+    pipeline API reports no active update. Sends alert_email before each restart.
+    """
+    from datetime import datetime, timezone
+
+    from common.ops.alert_ops import notify_pipeline_restart
+    from common.ops.process_log_store import (
+        ARTIFACT_TYPE_PIPELINE,
+        PROCESS_TYPE_INGEST,
+        build_process_log_row,
+        process_log_indicates_failed_restart,
+        read_latest_ingest_pipeline_statuses,
+        truncate_log,
+        write_process_log_rows,
+    )
+
     client = DatabricksRestClient()
     configured_names = set(_load_pipeline_names(pipeline_names_file))
+    pipeline_names = sorted(configured_names)
     pipelines, prefix_matches = _select_pipelines_for_ops(client, name_prefix, configured_names)
     if configured_names and not pipelines:
         raise RuntimeError(
             _pipeline_match_failure_message(configured_names, prefix_matches, name_prefix)
         )
+
+    use_process_log = spark is not None and uc_catalog and metadata_schema and pipeline_names
+    log_statuses: dict[str, Any] = {}
+    if use_process_log:
+        log_statuses = read_latest_ingest_pipeline_statuses(
+            spark, uc_catalog, metadata_schema, pipeline_names
+        )
+        print(f"process_log: loaded latest status for {len(log_statuses)} pipeline(s)")
+
     restarted = 0
+    now = datetime.now(timezone.utc)
 
     for p in pipelines:
         if restarted >= restart_limit:
@@ -577,17 +619,106 @@ def run_restart(
         name = p.get("name", pid)
         if not pid:
             continue
+        logical = normalize_pipeline_key(_strip_bundle_dev_prefix(str(name)))
+        log_status = log_statuses.get(logical)
+
+        if use_process_log:
+            if log_status is None:
+                print(f"{name}: SKIP no process_log row (heartbeat monitor may not have run)")
+                continue
+            if not process_log_indicates_failed_restart(log_status):
+                print(
+                    f"{name}: SKIP process_log status={log_status.current_status} "
+                    f"detail={log_status.detail_status or 'n/a'}"
+                )
+                continue
+
         detail = client.get(f"/api/2.0/pipelines/{pid}") or {}
-        should_restart, reason = _is_failed_continuous(detail)
-        print(f"{name}: {reason}")
-        if not should_restart:
+        if _is_pipeline_update_active(detail):
+            latest = _latest_update_block(detail)
+            state = str(latest.get("state", "")).upper() or "UNKNOWN"
+            print(f"{name}: SKIP active update in progress (state={state})")
             continue
+
+        if use_process_log and log_status is not None:
+            error_message = log_status.log or log_status.detail_status or log_status.current_status
+            failed_at = log_status.recorded_at
+        else:
+            should_restart, reason = _is_failed_continuous(detail)
+            print(f"{name}: {reason}")
+            if not should_restart:
+                continue
+            error_message = reason
+            failed_at = None
+
+        if alert_email:
+            notify_pipeline_restart(
+                alert_email,
+                str(name),
+                str(pid),
+                failed_at,
+                error_message,
+                restart_at=now,
+            )
+        else:
+            print("WARN no alert_email configured; restart proceeding without notification")
+
         client.post(f"/api/2.0/pipelines/{pid}/updates")
         restarted += 1
         print(f"Restart requested for {name} ({pid})")
 
+        if use_process_log and log_status is not None:
+            restart_row = build_process_log_row(
+                PROCESS_TYPE_INGEST,
+                logical,
+                "RUNNING",
+                artifact_type=ARTIFACT_TYPE_PIPELINE,
+                artifact_id=str(pid),
+                artifact_run_id=log_status.artifact_run_id,
+                process_id=log_status.artifact_run_id or str(pid),
+                client_nm=log_status.client_nm,
+                detail_status="RESTART_REQUESTED",
+                log=truncate_log(
+                    f"Restart requested after process_log FAILED. Alert sent to {alert_email or 'n/a'}. "
+                    f"Prior error: {error_message}"
+                ),
+                recorded_at=now,
+            )
+            write_process_log_rows(spark, uc_catalog, metadata_schema, [restart_row])
+
     print(f"Restart requests submitted: {restarted}")
     return 0
+
+
+def run_restart_loop(
+    name_prefix: str,
+    restart_limit: int,
+    pipeline_names_file: str,
+    poll_interval_sec: int,
+    spark: Any | None = None,
+    uc_catalog: str = "",
+    metadata_schema: str = "",
+    alert_email: str = "",
+) -> int:
+    """Poll process_log and restart failed pipelines every poll_interval_sec."""
+    if poll_interval_sec <= 0:
+        raise ValueError("poll_interval_sec must be positive")
+    iteration = 0
+    print(f"Starting restart poll loop: interval={poll_interval_sec}s")
+    while True:
+        iteration += 1
+        print(f"--- restart poll {iteration} ---")
+        run_restart(
+            name_prefix,
+            restart_limit,
+            pipeline_names_file,
+            spark=spark,
+            uc_catalog=uc_catalog,
+            metadata_schema=metadata_schema,
+            alert_email=alert_email,
+        )
+        print(f"Sleeping {poll_interval_sec}s until next restart poll...")
+        time.sleep(poll_interval_sec)
 
 
 def main() -> int:

@@ -159,6 +159,108 @@ def client_nm_from_ingest_pipeline(process_nm: str) -> str:
     return ""
 
 
+@dataclass
+class ProcessLogPipelineStatus:
+    """Latest ingest process_log row for one monitored pipeline."""
+
+    process_nm: str
+    current_status: str
+    detail_status: str
+    log: str
+    recorded_at: datetime | None
+    artifact_id: str
+    artifact_run_id: str
+    client_nm: str
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def latest_ingest_pipeline_status_sql(
+    catalog: str,
+    schema: str,
+    pipeline_names: list[str],
+) -> str:
+    """SQL returning the latest ingest process_log row per pipeline name."""
+    if not pipeline_names:
+        raise ValueError("pipeline_names required")
+    table = qualified_table(catalog, schema)
+    in_list = ", ".join(_sql_string_literal(name) for name in pipeline_names)
+    return f"""
+SELECT
+  process_nm,
+  current_status,
+  detail_status,
+  log,
+  recorded_at,
+  artifact_id,
+  artifact_run_id,
+  client_nm
+FROM (
+  SELECT
+    process_nm,
+    current_status,
+    detail_status,
+    log,
+    recorded_at,
+    artifact_id,
+    artifact_run_id,
+    client_nm,
+    ROW_NUMBER() OVER (PARTITION BY process_nm ORDER BY recorded_at DESC) AS rn
+  FROM {table}
+  WHERE process_type = 'ingest'
+    AND artifact_type = 'pipeline'
+    AND process_nm IN ({in_list})
+) ranked
+WHERE rn = 1
+""".strip()
+
+
+def read_latest_ingest_pipeline_statuses(
+    spark,
+    catalog: str,
+    schema: str,
+    pipeline_names: list[str],
+) -> dict[str, ProcessLogPipelineStatus]:
+    """Read latest process_log ingest status per pipeline key (empty if table missing)."""
+    if not pipeline_names:
+        return {}
+    try:
+        ensure_process_log_table(spark, catalog, schema)
+        sql = latest_ingest_pipeline_status_sql(catalog, schema, pipeline_names)
+        rows = spark.sql(sql).collect()
+    except Exception as exc:
+        print(f"WARN could not read process_log statuses: {exc}")
+        return {}
+
+    result: dict[str, ProcessLogPipelineStatus] = {}
+    for row in rows:
+        process_nm = str(row["process_nm"] or "").strip()
+        if not process_nm:
+            continue
+        recorded = row["recorded_at"]
+        result[process_nm] = ProcessLogPipelineStatus(
+            process_nm=process_nm,
+            current_status=str(row["current_status"] or "").strip(),
+            detail_status=str(row["detail_status"] or "").strip(),
+            log=str(row["log"] or "").strip(),
+            recorded_at=recorded,
+            artifact_id=str(row["artifact_id"] or "").strip(),
+            artifact_run_id=str(row["artifact_run_id"] or "").strip(),
+            client_nm=str(row["client_nm"] or "").strip(),
+        )
+    return result
+
+
+def process_log_indicates_failed_restart(status: ProcessLogPipelineStatus) -> bool:
+    """True when latest process_log row shows a failed pipeline update."""
+    if status.current_status.upper() == "FAILED":
+        return True
+    detail = status.detail_status.upper()
+    return detail in {"FAILED", "CANCELED", "CANCELLED"}
+
+
 def qualified_table(catalog: str, schema: str) -> str:
     return f"{catalog}.{schema}.{PROCESS_LOG_TABLE}"
 
