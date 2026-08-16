@@ -288,3 +288,16 @@ def test_write_source_replication_sql_writes_four_files(tmp_path):
     assert paths[1].endswith("_grant_ct_access.sql")
     assert paths[2].endswith("_grant_cdc_access.sql")
     assert paths[3].endswith("_active_tables_pk_ct_status.sql")
+
+
+def test_write_ipac_metadata_schema_resource_yaml(tmp_path):
+    from pathlib import Path
+
+    from util.schema_generator import write_ipac_metadata_schema_resource_yaml
+
+    path = write_ipac_metadata_schema_resource_yaml(tmp_path)
+    text = Path(path).read_text(encoding="utf-8")
+    assert "schema_ipac_metadata:" in text
+    assert "name: ${var.ipac_metadata_schema}" in text
+    assert "catalog_name: ${var.uc_catalog}" in text
+    assert path.endswith("ipac_metadata_schema.yml")

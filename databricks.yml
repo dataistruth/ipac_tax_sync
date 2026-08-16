@@ -7,7 +7,7 @@
 #   3. ./ipac-delta-sync validate
 #   4. ./ipac-delta-sync generate
 #   5. First deploy: databricks bundle validate && databricks bundle deploy
-#      (resources/schemas + generated/config/schema deploy before pipelines)
+#      (generated/config/schema deploys ipac_metadata + client raw schemas before pipelines)
 #   6. Later: databricks bundle deploy --select pipelines.p_<client_nm>_1,...
 #
 # Calc jobs deploy from ipac-sdt-calc (jobs.*) — see docs/migration-from-ipac-core-sdt.md

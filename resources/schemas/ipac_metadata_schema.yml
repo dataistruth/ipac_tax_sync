@@ -1,8 +1,0 @@
-# Shared metadata schema — deployed before pipelines (event_log, process_log, recon).
-# Client raw schemas: generated/config/schema/<client_nm>_schema.yml
-resources:
-  schemas:
-    schema_ipac_metadata:
-      name: ${var.ipac_metadata_schema}
-      catalog_name: ${var.uc_catalog}
-      comment: "iPAC metadata schema for process logs, recon tables, and ingest event logs"

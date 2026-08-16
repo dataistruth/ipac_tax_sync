@@ -36,7 +36,7 @@ from util.paths import (
     generated_config_schema_dir,
     generated_schema_dir,
 )
-from util.schema_generator import write_client_schema_resource_yaml
+from util.schema_generator import write_client_schema_resource_yaml, write_ipac_metadata_schema_resource_yaml
 from util.pipeline_generator import (
     chunk_tables,
     generate_client_pipelines_yaml,
@@ -188,6 +188,13 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     generated_pipeline_names: list[str] = []
     errors = 0
 
+    if not args.stdout:
+        ipac_metadata_schema_path = write_ipac_metadata_schema_resource_yaml(
+            config_schema_dir,
+            uc_catalog_ref=uc_catalog_ref,
+        )
+        print(f"Generated {ipac_metadata_schema_path}", flush=True)
+
     for client in clients:
         try:
             _log(f"--- {client.client_nm}: resolving tables...")
@@ -274,7 +281,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
         print(
-            "Metadata schema: resources/schemas/ipac_metadata_schema.yml",
+            "Metadata schema: generated/config/schema/ipac_metadata_schema.yml",
             flush=True,
         )
         print(
