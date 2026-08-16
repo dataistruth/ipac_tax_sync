@@ -25,4 +25,3 @@ resources:
               dest_schema_suffix: ${var.dest_schema_suffix}
               poll_interval_sec: ${var.recon_poll_interval_sec}
               lookback_hours: ${var.recon_lookback_hours}
-              ingest_event_log_name: ${var.ingest_event_log_name}

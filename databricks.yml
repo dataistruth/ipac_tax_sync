@@ -56,9 +56,6 @@ variables:
   recon_lookback_hours:
     default: 24
     description: Hours of ingestion event log history to scan each recon poll
-  ingest_event_log_name:
-    default: ingest_events
-    description: Shared UC event log table for all ingest pipelines (pipeline_id and pipeline_name are columns in each event)
   heartbeat_job_alert_mail:
     default: mukessingh@deloitte.com
     description: Email recipient for heartbeat monitor/restart job failures
@@ -93,7 +90,6 @@ targets:
       heartbeat_interval_sec: 900
       recon_poll_interval_sec: 300
       recon_lookback_hours: 24
-      ingest_event_log_name: ingest_events
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
@@ -112,7 +108,6 @@ targets:
       heartbeat_interval_sec: 900
       recon_poll_interval_sec: 300
       recon_lookback_hours: 24
-      ingest_event_log_name: ingest_events
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync

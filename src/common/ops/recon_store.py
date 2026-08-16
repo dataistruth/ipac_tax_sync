@@ -146,18 +146,12 @@ def qualified_table(catalog: str, schema: str, table: str) -> str:
     return f"{catalog}.{schema}.{table}"
 
 
-SHARED_INGEST_EVENT_LOG_TABLE = "ingest_events"
-
-
-def default_ingest_event_log_table_name() -> str:
-    """Shared UC event log table for all ingest pipelines."""
-    return SHARED_INGEST_EVENT_LOG_TABLE
-
-
-def ingest_event_log_table_name(pipeline_key: str = "") -> str:
-    """Shared ingest event log; pipeline identity is in origin.pipeline_id / pipeline_name columns."""
-    _ = pipeline_key
-    return SHARED_INGEST_EVENT_LOG_TABLE
+def ingest_event_log_table_name(pipeline_key: str) -> str:
+    """Per-pipeline published UC event log (each pipeline creates its own table)."""
+    key = pipeline_key.strip()
+    if not key:
+        raise ValueError("pipeline_key is required for ingest event log table name")
+    return f"ingest_events_{key}"
 
 
 def lakeflow_flow_metrics_create_sql(catalog: str, schema: str) -> str:

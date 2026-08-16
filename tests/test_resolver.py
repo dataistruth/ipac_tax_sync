@@ -1,7 +1,6 @@
 """Tests for ipac_delta_sync config/common model."""
 
 from util.bundle_config import (
-    INGEST_EVENT_LOG_NAME_VAR_REF,
     pipeline_tag_var_ref,
     pipeline_max_update_retry_attempts_var_ref,
     pipeline_cluster_node_type_var_ref,
@@ -117,6 +116,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
     assert "catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}" in yaml_text
     assert "schema: ${resources.schemas.schema_ipac_metadata.name}" in yaml_text
+    assert "name: ingest_events_p_iPC_2025_Dev7_15350_1" in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
         idx = yaml_text.index(f"destination_table: '{table.table_nm}'")

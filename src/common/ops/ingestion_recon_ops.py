@@ -26,7 +26,7 @@ from common.ops.recon_store import (
     FlowMetricsRow,
     FlowSummaryRow,
     ReconReadyRow,
-    default_ingest_event_log_table_name,
+    ingest_event_log_table_name,
     qualified_table,
     RECON_READY_TABLE,
     write_flow_metrics_rows,
@@ -112,34 +112,6 @@ def recon_already_recorded(
         return False
 
 
-def _index_flow_rows_by_pipeline(
-    rows: list[dict[str, Any]],
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
-    by_id: dict[str, list[dict[str, Any]]] = {}
-    by_name: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        pipeline_id = str(row.get("pipeline_id") or "").strip()
-        pipeline_name = str(row.get("pipeline_name") or "").strip()
-        if pipeline_id:
-            by_id.setdefault(pipeline_id, []).append(row)
-        if pipeline_name:
-            by_name.setdefault(pipeline_name.casefold(), []).append(row)
-    return by_id, by_name
-
-
-def _rows_for_context(
-    ctx: Any,
-    by_pipeline_id: dict[str, list[dict[str, Any]]],
-    by_pipeline_name: dict[str, list[dict[str, Any]]],
-) -> list[dict[str, Any]]:
-    if ctx.pipeline_id and ctx.pipeline_id in by_pipeline_id:
-        return by_pipeline_id[ctx.pipeline_id]
-    key = ctx.pipeline_key.casefold()
-    for name, rows in by_pipeline_name.items():
-        if name == key or name.endswith(key) or key in name:
-            return rows
-    return []
-
 
 def run_pipeline_recon(
     spark,
@@ -150,8 +122,6 @@ def run_pipeline_recon(
     src_schema: str,
     lookback_hours: int = 24,
     rest_client: DatabricksRestClient | None = None,
-    raw_rows: list[dict[str, Any]] | None = None,
-    event_log_table: str | None = None,
 ) -> tuple[int, int, int]:
     """
     Run recon for one ingestion pipeline context.
@@ -160,15 +130,12 @@ def run_pipeline_recon(
     if not ctx.pipeline_id:
         ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
 
-    if raw_rows is not None:
-        pipeline_rows = raw_rows
-    else:
-        el_name = event_log_table or ctx.event_log_table
-        qualified_el = event_log_qualified(catalog, metadata_schema, el_name)
-        if not table_exists(spark, qualified_el):
-            print(f"SKIP event log not found: {qualified_el}")
-            return 0, 0, 0
-        pipeline_rows = fetch_flow_progress_rows(spark, qualified_el, lookback_hours)
+    el_name = ctx.event_log_table or ingest_event_log_table_name(ctx.pipeline_key)
+    qualified_el = event_log_qualified(catalog, metadata_schema, el_name)
+    if not table_exists(spark, qualified_el):
+        print(f"SKIP event log not found: {qualified_el}")
+        return 0, 0, 0
+    pipeline_rows = fetch_flow_progress_rows(spark, qualified_el, lookback_hours)
 
     metrics: list[FlowMetricsRow] = []
     for row in pipeline_rows:
@@ -275,30 +242,14 @@ def run_all_pipeline_recon(
     metadata_schema: str,
     pipeline_contexts: list[tuple[Any, str, str]],
     lookback_hours: int = 24,
-    event_log_table: str | None = None,
 ) -> dict[str, int]:
     """Run recon for each (PipelineReconContext, src_catalog, src_schema)."""
     totals = {"metrics": 0, "summaries": 0, "recon_ready": 0, "pipelines": 0}
     client = DatabricksRestClient()
-    shared_el_name = event_log_table or default_ingest_event_log_table_name()
-    qualified_el = event_log_qualified(catalog, metadata_schema, shared_el_name)
-
-    all_rows: list[dict[str, Any]] = []
-    if table_exists(spark, qualified_el):
-        all_rows = fetch_flow_progress_rows(spark, qualified_el, lookback_hours)
-        print(
-            f"Shared event log {qualified_el}: fetched {len(all_rows)} flow_progress row(s) "
-            f"(lookback={lookback_hours}h)"
-        )
-    else:
-        print(f"SKIP shared event log not found: {qualified_el}")
-
-    by_pipeline_id, by_pipeline_name = _index_flow_rows_by_pipeline(all_rows)
 
     for ctx, src_catalog, src_schema in pipeline_contexts:
         if not ctx.pipeline_id:
             ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, client)
-        pipeline_rows = _rows_for_context(ctx, by_pipeline_id, by_pipeline_name)
         m, s, r = run_pipeline_recon(
             spark,
             catalog,
@@ -308,8 +259,6 @@ def run_all_pipeline_recon(
             src_schema,
             lookback_hours=lookback_hours,
             rest_client=client,
-            raw_rows=pipeline_rows,
-            event_log_table=shared_el_name,
         )
         totals["metrics"] += m
         totals["summaries"] += s

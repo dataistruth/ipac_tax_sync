@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from common.ops.recon_store import ingest_event_log_table_name
 from util.bundle_config import (
-    INGEST_EVENT_LOG_NAME_VAR_REF,
     METADATA_SCHEMA_CATALOG_REF,
     METADATA_SCHEMA_NAME_REF,
     PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
@@ -119,7 +119,7 @@ def _pipeline_resource_lines(
         "      event_log:",
         f"        catalog: {METADATA_SCHEMA_CATALOG_REF}",
         f"        schema: {METADATA_SCHEMA_NAME_REF}",
-        f"        name: {INGEST_EVENT_LOG_NAME_VAR_REF}",
+        f"        name: {ingest_event_log_table_name(pipeline_key)}",
         "      permissions:",
         "        - level: CAN_MANAGE",
         "          group_name: ${var.grant_group}",

@@ -18,9 +18,6 @@ JOB_TAG_VAR_REF = "${var.job_tag}"
 PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF = "${var.pipeline_max_update_retry_attempts}"
 PIPELINE_CLUSTER_NODE_TYPE_VAR_REF = "${var.pipeline_cluster_node_type}"
 PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
-INGEST_EVENT_LOG_NAME_VAR_REF = "${var.ingest_event_log_name}"
-
-
 def databricks_yml_path() -> Path:
     return project_root() / "databricks.yml"
 

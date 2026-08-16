@@ -11,7 +11,7 @@ from common.ops.lakeflow_event_ops import (
     resolve_table_from_flow_name,
     TableReconConfig,
 )
-from common.ops.recon_store import default_ingest_event_log_table_name, ingest_event_log_table_name
+from common.ops.recon_store import ingest_event_log_table_name
 from common.ops.source_ct_ops import (
     build_ct_count_sql,
     build_federated_ct_count_sql,
@@ -33,10 +33,9 @@ def _table_cfg() -> list[TableReconConfig]:
     ]
 
 
-def test_ingest_event_log_table_name_shared():
-    assert default_ingest_event_log_table_name() == "ingest_events"
-    assert ingest_event_log_table_name("p_client_1") == "ingest_events"
-    assert ingest_event_log_table_name() == "ingest_events"
+def test_ingest_event_log_table_name_per_pipeline():
+    assert ingest_event_log_table_name("p_client_1") == "ingest_events_p_client_1"
+    assert ingest_event_log_table_name("p_iPC_2025_Dev7_15350_2") == "ingest_events_p_iPC_2025_Dev7_15350_2"
 
 
 def test_flow_progress_extract_sql_filters_managed_ingestion():
@@ -161,18 +160,6 @@ def test_evaluate_recon_type_2_compare_change_rows():
 def test_resolve_table_from_flow_name():
     cfgs = _table_cfg()
     assert resolve_table_from_flow_name("dbo_CustomImportDetail_flow", cfgs) == "CustomImportDetail"
-
-
-    from common.ops.ingestion_recon_ops import _index_flow_rows_by_pipeline, _rows_for_context
-    from common.ops.lakeflow_event_ops import build_pipeline_recon_context
-
-    rows = [
-        {"pipeline_id": "pid-1", "pipeline_name": "p_client_1", "event_id": "e1"},
-        {"pipeline_id": "pid-2", "pipeline_name": "p_client_2", "event_id": "e2"},
-    ]
-    by_id, by_name = _index_flow_rows_by_pipeline(rows)
-    ctx = build_pipeline_recon_context("p_client_1", _table_cfg(), pipeline_id="pid-1")
-    assert _rows_for_context(ctx, by_id, by_name) == rows[:1]
 
 
 def test_ct_count_sql_uses_changetable_operations():

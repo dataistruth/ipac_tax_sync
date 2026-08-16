@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Ingestion flow metrics reconciliation
 # MAGIC
-# MAGIC Polls shared ingest event log (`ingest_events`),
+# MAGIC Polls per-pipeline ingest event logs (`ingest_events_p_<client>_<n>`),
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
 # MAGIC optionally compares SQL Server Change Tracking for `recon_type` 2/3,
 # MAGIC writes `recon_ready` + `process_log` on PASS.
@@ -15,7 +15,6 @@ dbutils.widgets.text("pipeline_names_file", "", "pipeline_names.json path")
 dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
 dbutils.widgets.text("poll_interval_sec", "300", "Poll interval seconds")
 dbutils.widgets.text("lookback_hours", "24", "Event log lookback hours")
-dbutils.widgets.text("ingest_event_log_name", "ingest_events", "Shared ingest event log table name")
 dbutils.widgets.dropdown("run_ct_probe", "true", ["true", "false"], "Run SQL Server CT connection probe at startup")
 dbutils.widgets.text("ct_probe_table_nm", "", "Table to probe (blank = first active common table)")
 
@@ -25,7 +24,6 @@ pipeline_names_file = dbutils.widgets.get("pipeline_names_file").strip()
 dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "_poc1"
 poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "300")
 lookback_hours = int(dbutils.widgets.get("lookback_hours").strip() or "24")
-ingest_event_log_name = dbutils.widgets.get("ingest_event_log_name").strip() or "ingest_events"
 run_ct_probe = dbutils.widgets.get("run_ct_probe").strip().lower() == "true"
 ct_probe_table_nm = dbutils.widgets.get("ct_probe_table_nm").strip()
 
@@ -35,7 +33,6 @@ print(f"pipeline_names_file  : {pipeline_names_file or '(none)'}")
 print(f"dest_schema_suffix   : {dest_schema_suffix}")
 print(f"poll_interval_sec    : {poll_interval_sec}")
 print(f"lookback_hours       : {lookback_hours}")
-print(f"ingest_event_log_name: {ingest_event_log_name}")
 print(f"run_ct_probe          : {run_ct_probe}")
 print(f"ct_probe_table_nm     : {ct_probe_table_nm or '(first active table)'}")
 
@@ -131,7 +128,6 @@ while True:
         metadata_schema,
         contexts,
         lookback_hours=lookback_hours,
-        event_log_table=ingest_event_log_name,
     )
     print(
         f"poll {iteration} complete: pipelines={totals['pipelines']} "
