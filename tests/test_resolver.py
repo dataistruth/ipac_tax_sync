@@ -101,6 +101,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "data_staging_options:" not in yaml_text
     assert "serverless: false" in yaml_text
     assert "continuous: true" in yaml_text
+    assert "development: false" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
     assert f"instance_pool_id: {POOL_REF}" in yaml_text

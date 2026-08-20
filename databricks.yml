@@ -16,7 +16,7 @@ bundle:
   name: ipac-delta-sync
   engine: direct
 
-# Shared UC schemas (ipac_metadata, client raw) use stable names in dev — no [dev user] prefix.
+# Shared UC schemas (ipac_metadata, client raw) use stable names — no [dev user] prefix.
 experimental:
   skip_name_prefix_for_schema: true
 
@@ -27,10 +27,11 @@ sync:
     - generated/config/**
 
 include:
-  # Deploy order: UC schemas → instance pool → pipelines → ops jobs
+  # Deploy order: UC schemas → instance pool → pipelines → start-all job → ops jobs
   - generated/config/schema/*.yml
   - resources/instance_pools/*.yml
-  - generated/bundle/*.yml
+  - generated/bundle/*_pipeline.yml
+  - generated/bundle/continuous_ingest_job.yml
   - resources/jobs/*.yml
 
 variables:
@@ -90,9 +91,17 @@ variables:
     description: Spark runtime for generated Lakeflow pipeline clusters and pool preload
 
 targets:
+  # Deploy with: databricks bundle deploy -t dev
+  # Target "dev" = your environment (catalog dev7). It is NOT bundle development mode.
+  # mode: production on this target means:
+  #   - no [dev username] prefix on pipeline/job/pool names
+  #   - no "dev" custom tag on pools (required for instance_pool_id)
+  # pipelines_development: false + generated YAML development: false
   dev:
-    mode: development
     default: true
+    mode: production
+    presets:
+      pipelines_development: false
     variables:
       uc_catalog: dev7
       dest_schema_suffix: "_poc1"

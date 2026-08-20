@@ -180,13 +180,15 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 - `generated/config/schema/<client_nm>_schema.yml` — per-client raw + Lakeflow staging schema (bundle deploy)
 - `resources/instance_pools/ipac_ingest_pool.yml` — shared D32 instance pool for all pipeline clusters
 - `generated/bundle/<client_nm>_pipeline.yml` — pipelines (`depends_on` metadata schema, client schema, instance pool)
+- `generated/bundle/continuous_ingest_job.yml` — one job with a `pipeline_task` per generated pipeline
 
 **Bundle deploy order** (`databricks.yml` include + pipeline `depends_on`):
 
 1. `generated/config/schema/*.yml`
 2. `resources/instance_pools/*.yml`
-3. `generated/bundle/*.yml`
-4. `resources/jobs/*.yml`
+3. `generated/bundle/*_pipeline.yml`
+4. `generated/bundle/continuous_ingest_job.yml`
+5. `resources/jobs/*.yml`
 - `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
 - `generated/schema/ipac_metadata_recon_tables.sql` — recon table DDL
 
@@ -221,8 +223,19 @@ Deploy (example — client_a with 10 tables, batch size 5):
 
 ```bash
 ./ipac-delta-sync generate
-databricks bundle deploy --select pipelines.p_client_a_1,pipelines.p_client_a_2
+databricks bundle deploy -t dev
+databricks bundle run continuous_ingest_all -t dev
 ```
+
+### Start all continuous pipelines (one job)
+
+`generate` writes `generated/bundle/continuous_ingest_job.yml` with job **`j_ipac_delta_sync_continuous_ingest`**. It has one `pipeline_task` per entry in `generated/config/pipeline_names.json` (all tasks start in parallel). The job run stays **RUNNING** while continuous pipelines are up.
+
+```bash
+databricks bundle run continuous_ingest_all -t dev
+```
+
+Keep heartbeat/restart/recon jobs separate — they monitor and operate pipelines; this job only **starts** them.
 
 ### Heartbeat + restart jobs
 

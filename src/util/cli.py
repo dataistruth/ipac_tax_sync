@@ -45,6 +45,7 @@ from util.pipeline_generator import (
 )
 from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
 from util.pipeline_registry import write_pipeline_name_registry
+from util.pipeline_job_generator import write_continuous_ingest_job_yaml
 from util.resolver import resolve_effective_tables
 from util.sql_generator import write_source_replication_sql
 from util.src_scaffold import (
@@ -280,6 +281,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             schema_dir,
         )
         registry_path = write_pipeline_name_registry(config_dir, generated_pipeline_names)
+        ingest_job_path = write_continuous_ingest_job_yaml(generated_pipeline_names, bundle_dir)
         print(
             "Metadata schema: generated/config/schema/ipac_metadata_schema.yml",
             flush=True,
@@ -291,6 +293,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         print(f"Generated {process_log_sql_path}", flush=True)
         print(f"Generated {recon_sql_path}", flush=True)
         print(f"Generated {registry_path}", flush=True)
+        print(f"Generated {ingest_job_path}", flush=True)
         _log("Done.")
 
     return 1 if errors else 0

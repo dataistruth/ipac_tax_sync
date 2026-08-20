@@ -147,6 +147,7 @@ def _pipeline_resource_lines(
         "      channel: PREVIEW",
         "      serverless: false",
         "      continuous: true",
+        "      development: false",
         "      configuration:",
         f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
         f"      catalog: {uc_catalog_ref}",
