@@ -1,0 +1,17 @@
+# Shared instance pool for all generated Lakeflow Connect CDC pipelines.
+# Deploy with bundle (requires bundle.engine: direct).
+resources:
+  instance_pools:
+    ipac_ingest_pool:
+      instance_pool_name: ipac_delta_sync_ingest_pool
+      node_type_id: ${var.pipeline_instance_pool_node_type}
+      min_idle_instances: ${var.pipeline_instance_pool_min_idle}
+      max_capacity: ${var.pipeline_instance_pool_max_capacity}
+      idle_instance_autotermination_minutes: 30
+      preloaded_spark_versions:
+        - ${var.pipeline_spark_version}
+      permissions:
+        - level: CAN_ATTACH_TO
+          group_name: ${var.grant_group}
+        - level: CAN_MANAGE
+          group_name: ${var.grant_group}
