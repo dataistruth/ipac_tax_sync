@@ -42,12 +42,12 @@ Six named profiles in `config/common/cluster_config.json`:
 | `j2` | Job cluster medium | 2–4 | `client_size: medium` |
 | `j3` | Job cluster large | 4–8 | `client_size: large` |
 
-Lakeflow Connect CDC pipelines use **job clusters** (`j1`/`j2`/`j3`). Generated YAML sets `serverless: false` and a `clusters` block:
+Lakeflow Connect CDC pipelines use **classic compute** with a **shared instance pool** (`resources/instance_pools/ipac_ingest_pool.yml`). Generated YAML sets `serverless: false` and attaches each pipeline cluster to the pool:
 
 ```yaml
 clusters:
   - label: default
-    node_type_id: ${var.pipeline_cluster_node_type}
+    instance_pool_id: ${resources.instance_pools.ipac_ingest_pool.id}
     spark_version: ${var.pipeline_spark_version}
     data_security_mode: USER_ISOLATION
     autoscale:
@@ -55,7 +55,9 @@ clusters:
       max_workers: 4
 ```
 
-Set node type and Spark version in `databricks.yml` (`variables.pipeline_cluster_node_type`, `variables.pipeline_spark_version`). Classic compute for ingestion requires the bundle **direct deployment engine** (`bundle.engine: direct` in `databricks.yml`).
+Pool defaults in `databricks.yml`: `Standard_D32s_v3` (32 vCPU D-series), `min_idle_instances: 4`, `max_capacity: 8`.
+
+Set Spark version in `variables.pipeline_spark_version`. Classic compute and instance pools require the bundle **direct deployment engine** (`bundle.engine: direct` in `databricks.yml`).
 
 > `cluster_tier` in `client.json` must agree with `client_size` (validate fails if e.g. `small` + `j2`).
 

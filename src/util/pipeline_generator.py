@@ -28,7 +28,7 @@ def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict
 # #endregion
 
 from util.bundle_config import (
-    PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
+    PIPELINE_INSTANCE_POOL_ID_REF,
     PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
     PIPELINE_TAG_VAR_REF,
@@ -119,6 +119,7 @@ def _pipeline_resource_lines(
     dest_schema_suffix: str,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
+    instance_pool_ref: str = PIPELINE_INSTANCE_POOL_ID_REF,
 ) -> list[str]:
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
@@ -154,8 +155,8 @@ def _pipeline_resource_lines(
         lines.extend(
             format_pipeline_cluster_lines(
                 tier,
-                PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
                 PIPELINE_SPARK_VERSION_VAR_REF,
+                instance_pool_ref=instance_pool_ref,
             )
         )
     else:
@@ -191,6 +192,7 @@ def generate_client_pipelines_yaml(
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
+    instance_pool_ref: str = PIPELINE_INSTANCE_POOL_ID_REF,
 ) -> str:
     """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
     if not tables:
@@ -227,7 +229,8 @@ def generate_client_pipelines_yaml(
         job_tier_key = expected_job_tier_for_size(client.client_size)
         tier_note = (
             f"# client_size: {client.client_size} → job tier {job_tier_key} ({tier.label}) — "
-            f"{tier.description} (autoscale {tier.min_workers}-{tier.max_workers} workers)"
+            f"{tier.description} (autoscale {tier.min_workers}-{tier.max_workers} workers); "
+            f"VMs from shared instance pool {instance_pool_ref}"
         )
 
     batch_summary = ", ".join(str(len(b)) for b in batches)
@@ -261,6 +264,7 @@ def generate_client_pipelines_yaml(
                 dest_schema_suffix,
                 pipeline_max_update_retry_attempts_ref,
                 metadata_schema,
+                instance_pool_ref,
             )
         )
 
@@ -281,6 +285,7 @@ def write_bundle_pipeline_yaml(
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
+    instance_pool_ref: str = PIPELINE_INSTANCE_POOL_ID_REF,
 ) -> str:
     from pathlib import Path
 
@@ -298,6 +303,7 @@ def write_bundle_pipeline_yaml(
         pipeline_tag_ref=pipeline_tag_ref,
         pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
         metadata_schema=metadata_schema,
+        instance_pool_ref=instance_pool_ref,
     )
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(content, encoding="utf-8")

@@ -3,7 +3,7 @@
 from util.bundle_config import (
     pipeline_tag_var_ref,
     pipeline_max_update_retry_attempts_var_ref,
-    pipeline_cluster_node_type_var_ref,
+    pipeline_instance_pool_id_ref,
     pipeline_spark_version_var_ref,
     resolve_dest_schema_suffix,
     resolve_num_of_tables_in_pipeline,
@@ -39,7 +39,7 @@ UC_REF = uc_catalog_var_ref()
 LKF_SCHEMA_REF = uc_lkf_staging_schema_var_ref()
 PIPELINE_TAG_REF = pipeline_tag_var_ref()
 RETRY_REF = pipeline_max_update_retry_attempts_var_ref()
-NODE_TYPE_REF = pipeline_cluster_node_type_var_ref()
+POOL_REF = pipeline_instance_pool_id_ref()
 SPARK_REF = pipeline_spark_version_var_ref()
 
 
@@ -105,7 +105,8 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "continuous: true" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
-    assert f"node_type_id: {NODE_TYPE_REF}" in yaml_text
+    assert f"instance_pool_id: {POOL_REF}" in yaml_text
+    assert "node_type_id:" not in yaml_text
     assert f"spark_version: {SPARK_REF}" in yaml_text
     cluster_cfg = load_cluster_config()
     tier = cluster_cfg.tiers[expected_job_tier_for_size(client.client_size)]
