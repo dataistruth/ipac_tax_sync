@@ -1,5 +1,5 @@
 # Shared instance pool for all generated Lakeflow Connect CDC pipelines.
-# Deploy with bundle (requires bundle.engine: direct).
+# Deploy after generated/config/schema/*.yml (pipelines depend_on this pool).
 resources:
   instance_pools:
     ipac_ingest_pool:

@@ -61,7 +61,6 @@ def format_pipeline_cluster_lines(
     lines.extend(
         [
             f"          spark_version: {spark_version_ref}",
-            f"          data_security_mode: {data_security_mode}",
             "          autoscale:",
             f"            min_workers: {tier.min_workers}",
             f"            max_workers: {tier.max_workers}",

@@ -177,8 +177,16 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 `generate` writes:
 
 - `generated/config/schema/ipac_metadata_schema.yml` — shared metadata schema (bundle deploy; uses `${var.uc_catalog}` + `${var.ipac_metadata_schema}`)
-- `generated/config/schema/<client_nm>_schema.yml` — per-client raw schema (bundle deploy)
-- `generated/bundle/<client_nm>_pipeline.yml` — pipelines only (`depends_on` both schemas)
+- `generated/config/schema/<client_nm>_schema.yml` — per-client raw + Lakeflow staging schema (bundle deploy)
+- `resources/instance_pools/ipac_ingest_pool.yml` — shared D32 instance pool for all pipeline clusters
+- `generated/bundle/<client_nm>_pipeline.yml` — pipelines (`depends_on` metadata schema, client schema, instance pool)
+
+**Bundle deploy order** (`databricks.yml` include + pipeline `depends_on`):
+
+1. `generated/config/schema/*.yml`
+2. `resources/instance_pools/*.yml`
+3. `generated/bundle/*.yml`
+4. `resources/jobs/*.yml`
 - `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
 - `generated/schema/ipac_metadata_recon_tables.sql` — recon table DDL
 

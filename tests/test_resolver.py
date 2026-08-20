@@ -9,7 +9,6 @@ from util.bundle_config import (
     resolve_num_of_tables_in_pipeline,
     resolve_uc_catalog,
     uc_catalog_var_ref,
-    uc_lkf_staging_schema_var_ref,
 )
 from util.cluster_tiers import expected_job_tier_for_size
 from util.config_loader import (
@@ -26,7 +25,7 @@ from util.pipeline_generator import (
 )
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
-from util.schema_generator import generate_schema_resource_yaml
+from util.schema_generator import generate_schema_resource_yaml, schema_resource_name_ref
 from util.sql_generator import (
     generate_enable_ct_sql,
     generate_table_pk_ct_status_sql,
@@ -36,7 +35,6 @@ from util.sql_generator import (
 )
 
 UC_REF = uc_catalog_var_ref()
-LKF_SCHEMA_REF = uc_lkf_staging_schema_var_ref()
 PIPELINE_TAG_REF = pipeline_tag_var_ref()
 RETRY_REF = pipeline_max_update_retry_attempts_var_ref()
 POOL_REF = pipeline_instance_pool_id_ref()
@@ -96,7 +94,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
         dest_schema_suffix="poc_1",
     )
 
-    assert f"schema: {LKF_SCHEMA_REF}" in yaml_text
+    assert f"schema: {schema_resource_name_ref(dest_schema)}" in yaml_text
     assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
     assert f"destination_schema: ${{resources.schemas.schema_ipc_2025_dev7_15350poc_1.name}}" in yaml_text
     assert dest_schema == "iPC_2025_Dev7_15350poc_1"
@@ -114,6 +112,8 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert f"max_workers: {tier.max_workers}" in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
+    assert "resources.instance_pools.ipac_ingest_pool" in yaml_text
+    assert "data_security_mode:" not in yaml_text
     assert "event_log:" not in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
@@ -151,7 +151,7 @@ def test_generate_yaml_uses_suffix_when_provided():
         dest_schema_suffix="_raw",
     )
 
-    assert f"schema: {LKF_SCHEMA_REF}" in yaml_text
+    assert f"schema: {schema_resource_name_ref(dest_schema)}" in yaml_text
     assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
     assert f"destination_schema: ${{resources.schemas.schema_ipc_2025_dev7_15447_raw.name}}" in yaml_text
     assert "data_staging_options:" not in yaml_text
