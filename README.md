@@ -66,7 +66,7 @@ Set node type and Spark version in `databricks.yml` (`variables.pipeline_cluster
 **Access grant group** is configured in `variables.grant_group` and applied as `CAN_MANAGE` on generated pipelines/jobs.
 **Heartbeat alert email** is configured in `variables.heartbeat_job_alert_mail`.
 
-**Tables per pipeline** — `variables.num_of_tables_in_pipeline` (default `5`). A client with 10 tables generates `p_client_a_1` and `p_client_a_2` (5 tables each); 12 tables → three pipelines with 5, 5, and 2 tables.
+**Tables per pipeline** — `variables.num_of_tables_in_pipeline` (default `10`). Keep this low (5–20) on continuous ingest pipelines to avoid driver GC pressure; a client with 199 tables at batch=10 generates 20 pipelines instead of 2 pipelines with 105 tables each.
 
 Raw and staging share one schema per client: `{uc_catalog}.{client_nm}{dest_schema_suffix}`.
 

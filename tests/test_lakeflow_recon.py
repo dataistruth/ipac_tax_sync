@@ -198,6 +198,23 @@ def test_evaluate_recon_type_2_compare_change_rows():
 def test_resolve_table_from_flow_name():
     cfgs = _table_cfg()
     assert resolve_table_from_flow_name("dbo_CustomImportDetail_flow", cfgs) == "CustomImportDetail"
+    assert (
+        resolve_table_from_flow_name(
+            "dev7.iPC_2025_Dev7_15347_poc1.CustomImportDetail_cdc_flow",
+            cfgs,
+        )
+        == "CustomImportDetail"
+    )
+    assert (
+        resolve_table_from_flow_name("dev7.iPC_2025_Dev7_15347_poc1.CustomImportDetail", cfgs)
+        == "CustomImportDetail"
+    )
+
+
+def test_flow_progress_extract_sql_parses_table_from_flow_name():
+    sql = flow_progress_extract_sql("pid-abc")
+    assert "origin.dataset_name" in sql
+    assert "regexp_replace(origin.flow_name" in sql
 
 
 def test_ct_count_sql_uses_changetable_operations():

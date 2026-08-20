@@ -33,14 +33,16 @@
       "description": "Job cluster medium for standard ingest",
       "serverless": false,
       "min_workers": 2,
-      "max_workers": 4
+      "max_workers": 4,
+      "driver_node_type_id": "Standard_DS4_v2"
     },
     "j3": {
       "label": "job_cluster_large",
       "description": "Job cluster large for wide/high-volume ingest",
       "serverless": false,
       "min_workers": 4,
-      "max_workers": 8
+      "max_workers": 8,
+      "driver_node_type_id": "Standard_DS4_v2"
     }
   }
 }

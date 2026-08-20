@@ -37,23 +37,36 @@ def resolve_job_tier_for_client(client: ClientEntry) -> ClusterTierName:
 
 def format_pipeline_cluster_lines(
     tier: ClusterTier,
-    node_type_ref: str,
     spark_version_ref: str,
+    *,
+    instance_pool_ref: str | None = None,
+    node_type_ref: str | None = None,
     data_security_mode: str = "USER_ISOLATION",
 ) -> list[str]:
     """YAML lines for classic (non-serverless) pipeline cluster block."""
     lines = [
         "      clusters:",
         "        - label: default",
-        f"          node_type_id: {node_type_ref}",
-        f"          spark_version: {spark_version_ref}",
-        f"          data_security_mode: {data_security_mode}",
-        "          autoscale:",
-        f"            min_workers: {tier.min_workers}",
-        f"            max_workers: {tier.max_workers}",
     ]
-    if tier.driver_node_type_id:
-        lines.insert(4, f"          driver_node_type_id: {tier.driver_node_type_id}")
+
+    if instance_pool_ref:
+        lines.append(f"          instance_pool_id: {instance_pool_ref}")
+    elif node_type_ref:
+        lines.append(f"          node_type_id: {node_type_ref}")
+        if tier.driver_node_type_id:
+            lines.append(f"          driver_node_type_id: {tier.driver_node_type_id}")
+    else:
+        raise ValueError("format_pipeline_cluster_lines requires instance_pool_ref or node_type_ref")
+
+    lines.extend(
+        [
+            f"          spark_version: {spark_version_ref}",
+            f"          data_security_mode: {data_security_mode}",
+            "          autoscale:",
+            f"            min_workers: {tier.min_workers}",
+            f"            max_workers: {tier.max_workers}",
+        ]
+    )
     if tier.policy_id:
         lines.append(f"          policy_id: {tier.policy_id}")
     return lines

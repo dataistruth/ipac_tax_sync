@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -71,7 +70,11 @@ SELECT
     origin.pipeline_name AS pipeline_name,
     origin.update_id AS update_id,
     origin.flow_name AS flow_name,
-    origin.dataset_name AS table_name,
+    COALESCE(
+        NULLIF(TRIM(origin.dataset_name), ''),
+        NULLIF(TRIM(element_at(split(regexp_replace(origin.flow_name, '(?i)_(cdc|snapshot)_flow$', ''), '[.]'), -1)), ''),
+        NULLIF(TRIM(element_at(split(regexp_replace(origin.flow_name, '(?i)_flow$', ''), '[.]'), -1)), '')
+    ) AS table_name,
     timestamp AS event_timestamp,
     details:flow_progress:status::STRING AS flow_status,
     TRY_CAST(details:flow_progress:metrics:num_output_rows AS BIGINT) AS output_rows,
@@ -152,24 +155,57 @@ def parse_flow_progress_event(
     )
 
 
+def _flow_stem(flow_name: str) -> str:
+    """Strip common Lakeflow Connect flow suffixes from a flow name."""
+    stem = flow_name.strip()
+    for suffix in ("_cdc_flow", "_snapshot_flow", "_flow"):
+        if stem.casefold().endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
 def resolve_table_from_flow_name(flow_name: str, tables: list[TableReconConfig]) -> str:
-    """Map flow_name to table_nm using suffix match or exact name."""
+    """Map flow_name to table_nm using suffix match, FQN, or schema_table patterns."""
     flow = flow_name.strip()
-    if not flow:
+    if not flow or not tables:
         return ""
+
+    by_name = {cfg.table_nm.casefold(): cfg.table_nm for cfg in tables}
     flow_lower = flow.casefold()
-    for cfg in tables:
-        if cfg.table_nm.casefold() == flow_lower:
-            return cfg.table_nm
-        if flow_lower.endswith(cfg.table_nm.casefold()):
-            return cfg.table_nm
-    # Common pattern: <schema>_<table>_flow or similar — last segment before _flow
-    m = re.match(r"^(.+)_flow$", flow, re.IGNORECASE)
-    if m:
-        candidate = m.group(1)
-        for cfg in tables:
-            if candidate.casefold().endswith(cfg.table_nm.casefold()):
-                return cfg.table_nm
+
+    if flow_lower in by_name:
+        return by_name[flow_lower]
+
+    best = ""
+    best_len = 0
+    for key, orig in by_name.items():
+        if flow_lower.endswith(key) and len(key) > best_len:
+            best = orig
+            best_len = len(key)
+    if best:
+        return best
+
+    stem = _flow_stem(flow)
+    if not stem:
+        return ""
+
+    if "." in stem:
+        last = stem.rsplit(".", 1)[-1].strip()
+        if last.casefold() in by_name:
+            return by_name[last.casefold()]
+        for key, orig in sorted(by_name.items(), key=lambda item: -len(item[0])):
+            if last.casefold().endswith(key):
+                return orig
+
+    if "_" in stem:
+        last = stem.rsplit("_", 1)[-1].strip()
+        if last.casefold() in by_name:
+            return by_name[last.casefold()]
+
+    for key, orig in sorted(by_name.items(), key=lambda item: -len(item[0])):
+        if stem.casefold().endswith(key):
+            return orig
+
     return ""
 
 

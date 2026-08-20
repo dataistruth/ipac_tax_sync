@@ -2,7 +2,30 @@
 
 from __future__ import annotations
 
+import json
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+# #region agent log
+_AGENT_DEBUG_LOG = Path("/Users/mukesh.singh/spark/deloitte/.cursor/debug-588d1c.log")
+
+
+def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        entry = {
+            "sessionId": "588d1c",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _AGENT_DEBUG_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+# #endregion
 
 from util.bundle_config import (
     PIPELINE_CLUSTER_NODE_TYPE_VAR_REF,
@@ -175,9 +198,29 @@ def generate_client_pipelines_yaml(
 
     batches = chunk_tables(tables, num_of_tables_in_pipeline)
     raw_schema = client.raw_schema(dest_schema_suffix)
-    catalog_comment = resolved_uc_catalog or uc_catalog_ref
-    lkf_schema_comment = resolved_uc_lkf_staging_schema or uc_lkf_staging_schema_ref
     tier = _tier_for_client(client, cluster_config)
+    # #region agent log
+    _agent_debug_log(
+        "H1",
+        "pipeline_generator.py:generate_client_pipelines_yaml",
+        "pipeline workload snapshot",
+        {
+            "client_nm": client.client_nm,
+            "client_size": client.client_size,
+            "total_tables": len(tables),
+            "num_of_tables_in_pipeline": num_of_tables_in_pipeline,
+            "pipeline_count": len(batches),
+            "tables_per_pipeline": [len(b) for b in batches],
+            "tier_label": tier.label if tier else None,
+            "min_workers": tier.min_workers if tier else None,
+            "max_workers": tier.max_workers if tier else None,
+            "driver_node_type_id": tier.driver_node_type_id if tier else None,
+        },
+    )
+    # #endregion
+    catalog_comment = resolved_uc_catalog or uc_catalog_ref
+
+    lkf_schema_comment = resolved_uc_lkf_staging_schema or uc_lkf_staging_schema_ref
 
     tier_note = ""
     if tier:

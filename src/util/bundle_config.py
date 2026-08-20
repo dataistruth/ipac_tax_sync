@@ -17,6 +17,7 @@ PIPELINE_TAG_VAR_REF = "${var.pipeline_tag}"
 JOB_TAG_VAR_REF = "${var.job_tag}"
 PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF = "${var.pipeline_max_update_retry_attempts}"
 PIPELINE_CLUSTER_NODE_TYPE_VAR_REF = "${var.pipeline_cluster_node_type}"
+PIPELINE_INSTANCE_POOL_ID_REF = "${resources.instance_pools.ipac_ingest_pool.id}"
 PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
 def databricks_yml_path() -> Path:
     return project_root() / "databricks.yml"
@@ -222,3 +223,8 @@ def pipeline_cluster_node_type_var_ref() -> str:
 
 def pipeline_spark_version_var_ref() -> str:
     return PIPELINE_SPARK_VERSION_VAR_REF
+
+
+def pipeline_instance_pool_id_ref() -> str:
+    """Bundle reference to the shared ingest instance pool."""
+    return PIPELINE_INSTANCE_POOL_ID_REF

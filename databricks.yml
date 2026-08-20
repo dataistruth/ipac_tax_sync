@@ -14,6 +14,7 @@
 # =============================================================================
 bundle:
   name: ipac-delta-sync
+  engine: direct
 
 # Shared UC schemas (ipac_metadata, client raw) use stable names in dev — no [dev user] prefix.
 experimental:
@@ -27,6 +28,7 @@ sync:
 
 include:
   - resources/schemas/*.yml
+  - resources/instance_pools/*.yml
   - generated/config/schema/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
@@ -60,8 +62,8 @@ variables:
     default: mukessingh@deloitte.com
     description: Email recipient for heartbeat monitor/restart job failures
   num_of_tables_in_pipeline:
-    default: 105
-    description: Max tables per generated Lakeflow pipeline (split into p_<client_nm>_1, _2, ...)
+    default: 10
+    description: Max tables per generated Lakeflow pipeline (split into p_<client_nm>_1, _2, ...). Keep low (5–20) to avoid driver GC pressure on continuous ingest.
   pipeline_tag:
     default: ipac_delta_sync
     description: Tag value applied to all generated Lakeflow pipelines (tags.bundle)
@@ -73,10 +75,19 @@ variables:
     description: Max update retries after failure for continuous Lakeflow pipelines (pipelines.numUpdateRetryAttempts)
   pipeline_cluster_node_type:
     default: Standard_DS3_v2
-    description: Node type for generated Lakeflow pipeline job clusters (clusters.label default)
+    description: Deprecated fallback when instance pool is disabled (prefer pipeline_instance_pool_node_type)
+  pipeline_instance_pool_node_type:
+    default: Standard_D32s_v3
+    description: Azure D-series node type for shared ingest instance pool (32 vCPU)
+  pipeline_instance_pool_min_idle:
+    default: 4
+    description: Minimum idle VMs kept warm in the shared ingest instance pool
+  pipeline_instance_pool_max_capacity:
+    default: 8
+    description: Maximum outstanding VMs in the shared ingest instance pool (idle + in-use)
   pipeline_spark_version:
     default: 15.4.x-scala2.12
-    description: Spark runtime for generated Lakeflow pipeline job clusters
+    description: Spark runtime for generated Lakeflow pipeline clusters and pool preload
 
 targets:
   dev:
@@ -94,7 +105,10 @@ targets:
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
-
+      num_of_tables_in_pipeline: 10
+      pipeline_instance_pool_node_type: Standard_D32s_v3
+      pipeline_instance_pool_min_idle: 4
+      pipeline_instance_pool_max_capacity: 8
 
   prod:
     mode: production
@@ -112,4 +126,7 @@ targets:
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
+      pipeline_instance_pool_node_type: Standard_D32s_v3
+      pipeline_instance_pool_min_idle: 4
+      pipeline_instance_pool_max_capacity: 8
 
