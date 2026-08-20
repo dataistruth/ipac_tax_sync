@@ -27,11 +27,10 @@ sync:
     - generated/config/**
 
 include:
-  # Deploy order: UC schemas → instance pool → pipelines → start-all job → ops jobs
+  # Deploy order: UC schemas → instance pool → pipelines → ops jobs
   - generated/config/schema/*.yml
   - resources/instance_pools/*.yml
-  - generated/bundle/*_pipeline.yml
-  - generated/bundle/continuous_ingest_job.yml
+  - generated/bundle/*.yml
   - resources/jobs/*.yml
 
 variables:

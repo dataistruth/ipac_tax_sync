@@ -180,15 +180,13 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 - `generated/config/schema/<client_nm>_schema.yml` — per-client raw + Lakeflow staging schema (bundle deploy)
 - `resources/instance_pools/ipac_ingest_pool.yml` — shared D32 instance pool for all pipeline clusters
 - `generated/bundle/<client_nm>_pipeline.yml` — pipelines (`depends_on` metadata schema, client schema, instance pool)
-- `generated/bundle/continuous_ingest_job.yml` — one job with a `pipeline_task` per generated pipeline
 
 **Bundle deploy order** (`databricks.yml` include + pipeline `depends_on`):
 
 1. `generated/config/schema/*.yml`
 2. `resources/instance_pools/*.yml`
-3. `generated/bundle/*_pipeline.yml`
-4. `generated/bundle/continuous_ingest_job.yml`
-5. `resources/jobs/*.yml`
+3. `generated/bundle/*.yml`
+4. `resources/jobs/*.yml`
 - `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
 - `generated/schema/ipac_metadata_recon_tables.sql` — recon table DDL
 
