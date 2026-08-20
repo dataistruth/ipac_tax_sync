@@ -217,23 +217,14 @@ Heartbeat monitor writes `process_type=ingest` rows each poll. Calc / transfer j
 - `src/<client_nm>/sql/<client_nm>_grant_ct_access.sql` — CT grants for PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
 - `src/<client_nm>/sql/<client_nm>_grant_cdc_access.sql` — CDC grants for non-PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
 
-Deploy (example — client_a with 10 tables, batch size 5):
+Deploy:
 
 ```bash
 ./ipac-delta-sync generate
 databricks bundle deploy -t dev
-databricks bundle run continuous_ingest_all -t dev
 ```
 
-### Start all continuous pipelines (one job)
-
-`generate` writes `generated/bundle/continuous_ingest_job.yml` with job **`j_ipac_delta_sync_continuous_ingest`**. It has one `pipeline_task` per entry in `generated/config/pipeline_names.json` (all tasks start in parallel). The job run stays **RUNNING** while continuous pipelines are up.
-
-```bash
-databricks bundle run continuous_ingest_all -t dev
-```
-
-Keep heartbeat/restart/recon jobs separate — they monitor and operate pipelines; this job only **starts** them.
+Start each continuous pipeline from the Databricks UI or `databricks pipelines start` after deploy. All pipeline clusters use the shared instance pool (`ipac_ingest_pool`).
 
 ### Heartbeat + restart jobs
 

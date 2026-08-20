@@ -291,7 +291,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         print(f"Generated {process_log_sql_path}", flush=True)
         print(f"Generated {recon_sql_path}", flush=True)
         print(f"Generated {registry_path}", flush=True)
-        print(f"Generated {ingest_job_path}", flush=True)
         _log("Done.")
 
     return 1 if errors else 0
