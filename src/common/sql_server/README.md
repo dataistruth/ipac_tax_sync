@@ -11,8 +11,9 @@ Execute against the **SQL Server instance** (any database context):
 3. `sql/003_recon_audit_tables.sql`
 4. `sql/004_grants.sql` — set `@AuditLogin` to your **existing admin SQL user**
 5. Optional: `sql/007_migrate_from_master.sql` — if you previously used `master.ipac_metadata`
-6. Optional: `sql/005_poll_changed_tables.sql` — ad-hoc poll for one client database
-7. Optional: `sql/006_recon_views.sql`
+6. Optional: `sql/008_baseline_ct_watermarks.sql` — initial CT head snapshot for all CT-enabled DBs
+7. Optional: `sql/005_poll_changed_tables.sql` — ad-hoc poll for one client database
+8. Optional: `sql/006_recon_views.sql`
 
 ## Databricks secret scope
 
