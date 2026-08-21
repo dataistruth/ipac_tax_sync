@@ -24,6 +24,8 @@ resources:
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.grant_group}
+        - level: CAN_RESTART
+          group_name: ${var.grant_group}
         - level: CAN_ATTACH_TO
           group_name: ${var.grant_group}
       depends_on:

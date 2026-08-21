@@ -242,15 +242,37 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` runs on the shared cluster **`ipac_sql_recon_shared`** (`resources/clusters/ipac_sql_recon_cluster.yml`). That cluster is an 8 vCPU single-node classic cluster with an init script that installs **msodbcsql18** and **pyodbc** for direct SQL Server CT recon (recon_type 2/3).
 
-Init script storage uses UC volume **`cluster_init`** in **`ipac_metadata`** (`resources/volumes/ipac_cluster_init_volume.yml`). Shared clusters cannot use workspace init scripts — upload after deploy:
+Init script storage uses UC volume **`cluster_init`** in **`ipac_metadata`** (`resources/volumes/ipac_cluster_init_volume.yml`). Shared clusters cannot use workspace init scripts. One-time setup after volume deploy:
 
 ```bash
 databricks bundle deploy -t dev --select resources.volumes.ipac_cluster_init_volume
+```
+
+**Upload init script** (pick one):
+
+```powershell
+# Windows (recommended — bundle run is not a deploy resource)
+.\scripts\upload_sql_recon_init.ps1 -Catalog dev7
+.\scripts\allowlist_sql_recon_init.ps1 -Catalog dev7
+```
+
+```bash
+# macOS/Linux
 databricks bundle run upload_sql_recon_init -t dev
+databricks bundle run allowlist_sql_recon_init -t dev
+```
+
+Then deploy cluster + recon job:
+
+```bash
 databricks bundle deploy -t dev --select resources.clusters.ipac_sql_recon_cluster,resources.jobs.ingestion_recon_monitor
 ```
 
-Also add the init script path to the workspace **allowlist** for standard access mode clusters (Admin → Compute → Policy / allowlist).
+> Do **not** use `bundle deploy --select allowlist_sql_recon_init` — that name is a **script**, not a bundle resource. Use `bundle run` or the PowerShell helpers above.
+
+Cluster permissions: **`ipacs_dev_team`** gets **`CAN_MANAGE`**, **`CAN_RESTART`**, and **`CAN_ATTACH_TO`** on `ipac_sql_recon_shared`.
+
+If allowlist update fails (needs `MANAGE ALLOWLIST`), add `/Volumes/dev7/ipac_metadata/cluster_init/` manually in **Catalog Explorer → Metastore → Artifact allowlist → Init Script → Volume**.
 
 Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
 
