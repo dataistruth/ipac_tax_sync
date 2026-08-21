@@ -84,11 +84,11 @@ from common.ops.ingestion_recon_ops import (
     run_all_pipeline_recon,
 )
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
-from common.ops.recon_store import ensure_recon_tables
+from common.ops.recon_store import ensure_recon_ready_table
 from common.ops.source_ct_direct import probe_source_ct_connection_direct
 from common.ops.sql_server_audit_store import open_audit_connection, resolve_source_ct_for_recon
 
-ensure_recon_tables(spark, uc_catalog, metadata_schema)
+ensure_recon_ready_table(spark, uc_catalog, metadata_schema)
 
 pipeline_keys = load_pipeline_names(pipeline_names_file) if pipeline_names_file else []
 if not pipeline_keys:

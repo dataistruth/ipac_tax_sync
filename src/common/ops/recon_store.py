@@ -288,6 +288,14 @@ def ensure_recon_tables(spark, catalog: str, schema: str) -> None:
     spark.sql(recon_ready_create_sql(catalog, schema))
 
 
+def ensure_recon_ready_table(spark, catalog: str, schema: str) -> None:
+    """Create only recon_ready in Delta — no MERGE metadata tables."""
+    from common.ops.uc_schema_ops import ensure_uc_schema
+
+    ensure_uc_schema(spark, catalog, schema)
+    spark.sql(recon_ready_create_sql(catalog, schema))
+
+
 def _flow_metrics_spark_schema():
     from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
@@ -549,7 +557,7 @@ def write_recon_ready_rows(
 ) -> int:
     if not rows:
         return 0
-    ensure_recon_tables(spark, catalog, schema)
+    ensure_recon_ready_table(spark, catalog, schema)
     target = qualified_table(catalog, schema, RECON_READY_TABLE)
     spark_schema = _recon_ready_spark_schema()
     df = _create_typed_dataframe(spark, [row.as_dict() for row in rows], spark_schema)

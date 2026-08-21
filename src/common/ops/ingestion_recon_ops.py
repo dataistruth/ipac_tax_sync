@@ -37,7 +37,6 @@ from common.ops.recon_store import (
     qualified_table,
     read_recon_event_log_watermarks,
     RECON_READY_TABLE,
-    upsert_recon_event_log_watermark,
     write_flow_metrics_rows,
     write_flow_summary_rows,
     write_recon_ready_rows,
@@ -50,8 +49,10 @@ from common.ops.sql_server_audit_store import (
     discover_pending_ct_tables,
     fetch_change_tracking_current_version,
     fetch_sql_row_count,
+    flush_recon_event_log_watermarks_sql,
     insert_recon_run,
     open_audit_connection,
+    read_recon_event_log_watermarks_sql,
     record_recon_table_result,
     resolve_source_ct_for_recon,
     upsert_db_watermark,
@@ -802,12 +803,34 @@ def run_all_pipeline_recon(
             ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
         if ctx.pipeline_id:
             pipeline_ids.append(ctx.pipeline_id)
-    watermarks = read_recon_event_log_watermarks(
-        spark,
-        catalog,
-        metadata_schema,
-        sorted(set(pipeline_ids)),
-    )
+    unique_pipeline_ids = sorted(set(pipeline_ids))
+
+    watermark_conn: Any | None = None
+    watermark_conn_client: Any | None = None
+    pending_event_log_watermarks: dict[str, ReconEventLogWatermark] = {}
+
+    if use_sql_server_audit and pipeline_contexts:
+        try:
+            watermark_conn_client = pipeline_contexts[0][3]
+            watermark_conn, _ = open_audit_connection(
+                watermark_conn_client, dbutils=dbutils
+            )
+            watermarks = read_recon_event_log_watermarks_sql(
+                watermark_conn, unique_pipeline_ids
+            )
+            print(
+                f"[recon] loaded {len(watermarks)} event_log watermark(s) from SQL Server"
+            )
+        except Exception as exc:
+            print(f"[recon] WARN SQL watermark read failed, using empty: {exc}")
+            watermarks = {}
+    else:
+        watermarks = read_recon_event_log_watermarks(
+            spark,
+            catalog,
+            metadata_schema,
+            unique_pipeline_ids,
+        )
 
     for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
@@ -843,18 +866,13 @@ def run_all_pipeline_recon(
             reason = f"CT pending on {len(ct_pending_probe)} table(s)"
 
         if not needs_poll:
-            upsert_recon_event_log_watermark(
-                spark,
-                catalog,
-                metadata_schema,
-                _watermark_from_rows_and_api(
-                    ctx.pipeline_id,
-                    ctx.pipeline_key,
-                    [],
-                    detail,
-                    watermark,
-                    polled_at,
-                ),
+            pending_event_log_watermarks[ctx.pipeline_id] = _watermark_from_rows_and_api(
+                ctx.pipeline_id,
+                ctx.pipeline_key,
+                [],
+                detail,
+                watermark,
+                polled_at,
             )
             print(f"{ctx.pipeline_key}: SKIP no activity ({reason})")
             totals["skipped"] += 1
@@ -871,18 +889,13 @@ def run_all_pipeline_recon(
         totals["polled"] += 1
         totals["new_events"] += len(pipeline_rows)
 
-        upsert_recon_event_log_watermark(
-            spark,
-            catalog,
-            metadata_schema,
-            _watermark_from_rows_and_api(
-                ctx.pipeline_id,
-                ctx.pipeline_key,
-                pipeline_rows,
-                detail,
-                watermark,
-                polled_at,
-            ),
+        pending_event_log_watermarks[ctx.pipeline_id] = _watermark_from_rows_and_api(
+            ctx.pipeline_id,
+            ctx.pipeline_key,
+            pipeline_rows,
+            detail,
+            watermark,
+            polled_at,
         )
 
         if not pipeline_rows:
@@ -926,6 +939,20 @@ def run_all_pipeline_recon(
             totals["summaries"] += s
             totals["recon_ready"] += r
             print(f"{ctx.pipeline_key}: metrics_merged={m} summaries={s} recon_ready={r}")
+
+    if pending_event_log_watermarks and watermark_conn is not None:
+        try:
+            flushed = flush_recon_event_log_watermarks_sql(
+                watermark_conn, pending_event_log_watermarks
+            )
+            print(f"[recon] flushed {flushed} event_log watermark(s) to SQL Server")
+        except Exception as exc:
+            print(f"[recon] WARN SQL watermark flush failed: {exc}")
+    if watermark_conn is not None:
+        try:
+            watermark_conn.close()
+        except Exception:
+            pass
 
     return totals
 

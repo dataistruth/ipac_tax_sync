@@ -44,12 +44,11 @@ Low-latency CT state lives in the dedicated **`ipac_metadata`** database on SQL 
 ### Setup (SSMS + Databricks CLI)
 
 1. Run SQL scripts in order from `src/common/sql_server/sql/`:
-   - `001_create_schema.sql` — creates database `ipac_metadata`
-   - `002_watermark_tables.sql`
-   - `003_recon_audit_tables.sql`
+   - `001_create_database.sql`
+   - `002_ct_recon_tables.sql`
+   - `003_process_log_table.sql` (optional SQL ops log)
    - `004_grants.sql` (replace `YOUR_ADMIN_SQL_LOGIN`)
-   - Optional: `007_migrate_from_master.sql` if you used `master.ipac_metadata` before
-   - Optional: `005_poll_changed_tables.sql`, `006_recon_views.sql`
+   - Optional: `006_baseline_ct_watermarks.sql`
 
 2. Create Databricks secrets:
 

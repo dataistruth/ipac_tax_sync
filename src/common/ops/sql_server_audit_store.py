@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any
+
+from common.ops.recon_store import ReconEventLogWatermark
 
 from common.ops.source_ct_direct import (
     SqlServerDirectConfig,
@@ -478,6 +481,121 @@ VALUES (
     with conn.cursor() as cur:
         cur.execute(sql)
     conn.commit()
+
+
+def _sql_datetime_literal(value: datetime | None) -> str:
+    if value is None:
+        return "NULL"
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'"
+
+
+def read_recon_event_log_watermarks_sql(
+    conn: Any,
+    pipeline_ids: list[str] | None = None,
+) -> dict[str, ReconEventLogWatermark]:
+    sql = f"""
+SELECT
+    pipeline_id,
+    pipeline_key,
+    last_event_ts,
+    last_event_id,
+    last_update_id,
+    last_api_update_state,
+    last_poll_at
+FROM {METADATA_TABLE_PREFIX}.recon_event_log_watermark
+""".strip()
+    if pipeline_ids:
+        ids = [pid.replace("'", "''") for pid in pipeline_ids if pid]
+        if ids:
+            in_list = ", ".join(f"'{pid}'" for pid in ids)
+            sql += f"\nWHERE pipeline_id IN ({in_list})"
+
+    out: dict[str, ReconEventLogWatermark] = {}
+    try:
+        rows = fetch_all_as_dict(conn, sql)
+    except Exception:
+        return out
+
+    for row in rows:
+        pid = str(row.get("pipeline_id") or "").strip()
+        if not pid:
+            continue
+        out[pid] = ReconEventLogWatermark(
+            pipeline_id=pid,
+            pipeline_key=str(row.get("pipeline_key") or "").strip(),
+            last_event_ts=row.get("last_event_ts"),
+            last_event_id=str(row.get("last_event_id") or "").strip(),
+            last_update_id=str(row.get("last_update_id") or "").strip(),
+            last_api_update_state=str(row.get("last_api_update_state") or "").strip().upper(),
+            last_poll_at=row.get("last_poll_at"),
+        )
+    return out
+
+
+def upsert_recon_event_log_watermark_sql(conn: Any, watermark: ReconEventLogWatermark) -> None:
+    pid = watermark.pipeline_id.replace("'", "''")
+    pkey = watermark.pipeline_key.replace("'", "''")
+    event_id = watermark.last_event_id.replace("'", "''")
+    update_id = watermark.last_update_id.replace("'", "''")
+    api_state = watermark.last_api_update_state.replace("'", "''")
+    sql = f"""
+MERGE {METADATA_TABLE_PREFIX}.recon_event_log_watermark AS target
+USING (
+    SELECT
+        '{pid}' AS pipeline_id,
+        NULLIF('{pkey}', '') AS pipeline_key,
+        {_sql_datetime_literal(watermark.last_event_ts)} AS last_event_ts,
+        NULLIF('{event_id}', '') AS last_event_id,
+        NULLIF('{update_id}', '') AS last_update_id,
+        NULLIF('{api_state}', '') AS last_api_update_state,
+        {_sql_datetime_literal(watermark.last_poll_at)} AS last_poll_at
+) AS source
+ON target.pipeline_id = source.pipeline_id
+WHEN MATCHED THEN
+    UPDATE SET
+        pipeline_key = source.pipeline_key,
+        last_event_ts = source.last_event_ts,
+        last_event_id = source.last_event_id,
+        last_update_id = source.last_update_id,
+        last_api_update_state = source.last_api_update_state,
+        last_poll_at = source.last_poll_at
+WHEN NOT MATCHED THEN
+    INSERT (
+        pipeline_id,
+        pipeline_key,
+        last_event_ts,
+        last_event_id,
+        last_update_id,
+        last_api_update_state,
+        last_poll_at
+    )
+    VALUES (
+        source.pipeline_id,
+        source.pipeline_key,
+        source.last_event_ts,
+        source.last_event_id,
+        source.last_update_id,
+        source.last_api_update_state,
+        source.last_poll_at
+    );
+""".strip()
+    with conn.cursor() as cur:
+        cur.execute(sql)
+    conn.commit()
+
+
+def flush_recon_event_log_watermarks_sql(
+    conn: Any,
+    watermarks: dict[str, ReconEventLogWatermark],
+) -> int:
+    """Upsert in-memory watermark dict to SQL Server (no Spark)."""
+    written = 0
+    for watermark in watermarks.values():
+        upsert_recon_event_log_watermark_sql(conn, watermark)
+        written += 1
+    return written
 
 
 def write_audit_log(
