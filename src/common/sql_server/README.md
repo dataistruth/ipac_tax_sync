@@ -10,7 +10,7 @@ Execute against the **SQL Server instance** (connect to `master`):
 1. `sql/001_create_schema.sql`
 2. `sql/002_watermark_tables.sql`
 3. `sql/003_recon_audit_tables.sql`
-4. `sql/004_grants.sql` — replace `@AuditLogin` with your audit SQL login
+4. `sql/004_grants.sql` — set `@AuditLogin` to your **existing admin SQL user** (skip if already `db_owner` on master + client DBs)
 5. Optional: `sql/005_poll_changed_tables.sql` — ad-hoc poll for one client database
 6. Optional: `sql/006_recon_views.sql`
 
@@ -25,11 +25,13 @@ databricks secrets put-secret scope_ipacs_audit SQL_SERVER_AUDIT_USERNAME
 databricks secrets put-secret scope_ipacs_audit SQL_SERVER_AUDIT_PASSWORD
 ```
 
-Or use the helper script:
+Or use scripts in `config/common/secrets/`:
 
-```bash
-./src/common/sql_server/setup_audit_secrets.sh --profile <databricks-profile>
+```powershell
+.\config\common\secrets\setup_scope_ipacs_audit.ps1
 ```
+
+See `config/common/secrets/databricks_secrets_commands.txt` for raw CLI commands.
 
 ## Python wiring
 
