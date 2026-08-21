@@ -4,8 +4,12 @@
 # MAGIC
 # MAGIC Polls hidden `event_log(pipeline_id)` for pipelines with activity,
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
-# MAGIC optionally compares SQL Server Change Tracking for `recon_type` 2/3,
+# MAGIC compares SQL Server Change Tracking (master.ipac_metadata watermarks) for `recon_type` 2/3,
 # MAGIC writes `recon_ready` + `process_log` on PASS.
+
+# COMMAND ----------
+
+# MAGIC %pip install -q pymssql
 
 # COMMAND ----------
 
@@ -15,8 +19,11 @@ dbutils.widgets.text("pipeline_names_file", "", "pipeline_names.json path")
 dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
 dbutils.widgets.text("poll_interval_sec", "300", "Poll interval seconds")
 dbutils.widgets.text("lookback_hours", "24", "Event log lookback hours")
-dbutils.widgets.dropdown("run_ct_probe", "true", ["true", "false"], "Run SQL Server CT connection probe at startup")
+dbutils.widgets.dropdown("run_ct_probe", "true", ["true", "false"], "Run SQL Server CT probe at startup")
 dbutils.widgets.text("ct_probe_table_nm", "", "Table to probe (blank = first active common table)")
+dbutils.widgets.text("sql_host", "", "SQL host override (blank = client.json sql_host)")
+dbutils.widgets.text("sql_audit_secret_scope", "scope_ipacs_audit", "Databricks secret scope for audit SQL login")
+dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use master.ipac_metadata CT watermarks")
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
@@ -26,15 +33,21 @@ poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "300
 lookback_hours = int(dbutils.widgets.get("lookback_hours").strip() or "24")
 run_ct_probe = dbutils.widgets.get("run_ct_probe").strip().lower() == "true"
 ct_probe_table_nm = dbutils.widgets.get("ct_probe_table_nm").strip()
+sql_host_override = dbutils.widgets.get("sql_host").strip()
+sql_audit_secret_scope = dbutils.widgets.get("sql_audit_secret_scope").strip() or "scope_ipacs_audit"
+use_sql_server_audit = dbutils.widgets.get("use_sql_server_audit").strip().lower() == "true"
 
-print(f"uc_catalog           : {uc_catalog}")
-print(f"metadata_schema      : {metadata_schema}")
-print(f"pipeline_names_file  : {pipeline_names_file or '(none)'}")
-print(f"dest_schema_suffix   : {dest_schema_suffix}")
-print(f"poll_interval_sec    : {poll_interval_sec}")
-print(f"lookback_hours       : {lookback_hours}")
-print(f"run_ct_probe          : {run_ct_probe}")
-print(f"ct_probe_table_nm     : {ct_probe_table_nm or '(first active table)'}")
+print(f"uc_catalog              : {uc_catalog}")
+print(f"metadata_schema         : {metadata_schema}")
+print(f"pipeline_names_file     : {pipeline_names_file or '(none)'}")
+print(f"dest_schema_suffix      : {dest_schema_suffix}")
+print(f"poll_interval_sec       : {poll_interval_sec}")
+print(f"lookback_hours          : {lookback_hours}")
+print(f"run_ct_probe            : {run_ct_probe}")
+print(f"ct_probe_table_nm       : {ct_probe_table_nm or '(first active table)'}")
+print(f"sql_host_override       : {sql_host_override or '(from client.json)'}")
+print(f"sql_audit_secret_scope  : {sql_audit_secret_scope}")
+print(f"use_sql_server_audit    : {use_sql_server_audit}")
 
 # COMMAND ----------
 
@@ -56,7 +69,8 @@ from common.ops.ingestion_recon_ops import (
 )
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
 from common.ops.recon_store import ensure_recon_tables
-from common.ops.source_ct_ops import probe_source_ct_connection
+from common.ops.source_ct_direct import probe_source_ct_connection_direct
+from common.ops.sql_server_audit_store import open_audit_connection, resolve_source_ct_for_recon
 
 ensure_recon_tables(spark, uc_catalog, metadata_schema)
 
@@ -76,6 +90,10 @@ catalog = load_common_tables()
 contexts: list = []
 for client_nm in client_names:
     client = get_client(client_nm)
+    if sql_host_override:
+        client = client.model_copy(update={"sql_host": sql_host_override})
+    if sql_audit_secret_scope:
+        client = client.model_copy(update={"sql_audit_secret_scope": sql_audit_secret_scope})
     overrides = load_client_overrides(client_nm)
     tables = resolve_effective_tables(client, catalog, overrides)
     keys_for_client = [k for k in pipeline_keys if client_nm in k]
@@ -86,13 +104,13 @@ print(f"Monitoring {len(contexts)} pipeline(s) for {len(client_names)} client(s)
 # COMMAND ----------
 
 if run_ct_probe:
-    from datetime import datetime, timedelta, timezone
-
-    probe_end = datetime.now(timezone.utc)
-    probe_start = probe_end - timedelta(hours=lookback_hours)
     common_catalog = load_common_tables()
     for client_nm in client_names:
         client = get_client(client_nm)
+        if sql_host_override:
+            client = client.model_copy(update={"sql_host": sql_host_override})
+        if sql_audit_secret_scope:
+            client = client.model_copy(update={"sql_audit_secret_scope": sql_audit_secret_scope})
         overrides = load_client_overrides(client_nm)
         effective = resolve_effective_tables(client, common_catalog, overrides)
         probe_table = ct_probe_table_nm
@@ -102,19 +120,28 @@ if run_ct_probe:
             print(f"[CT probe] SKIP {client_nm}: no table available for probe")
             continue
         print(f"========== CT probe: client={client_nm} table={probe_table} ==========")
-        print(f"[CT probe] src_db_nm (federated catalog): {client.src_db_nm}")
-        print(f"[CT probe] src_db_schema: {client.src_db_schema or 'dbo'}")
-        print(f"[CT probe] uc_conn_nm (Lakeflow connection): {client.uc_conn_nm}")
-        probe_source_ct_connection(
-            spark,
-            client.src_db_nm,
-            client.src_db_schema or "dbo",
-            probe_table,
-            recon_type=2,
-            start_time=probe_start,
-            end_time=probe_end,
-            print_results=True,
-        )
+        print(f"[CT probe] src_db_nm: {client.src_db_nm}")
+        print(f"[CT probe] secret scope: {client.sql_audit_secret_scope}")
+        try:
+            conn, cfg = open_audit_connection(client, dbutils=dbutils, host_override=sql_host_override)
+            probe_source_ct_connection_direct(
+                conn,
+                client.src_db_schema or "dbo",
+                probe_table,
+                print_results=True,
+            )
+            metric, pending, wm, head = resolve_source_ct_for_recon(
+                conn,
+                client,
+                client.src_db_schema or "dbo",
+                probe_table,
+                recon_type=2,
+                verbose=True,
+            )
+            print(f"[CT probe] watermark={wm} head={head} metric={metric} pending={pending}")
+            conn.close()
+        except Exception as exc:
+            print(f"[CT probe] FAILED for {client_nm}: {exc}")
 
 # COMMAND ----------
 
@@ -128,6 +155,8 @@ while True:
         metadata_schema,
         contexts,
         lookback_hours=lookback_hours,
+        dbutils=dbutils,
+        use_sql_server_audit=use_sql_server_audit,
     )
     print(
         f"poll {iteration} complete: pipelines={totals['pipelines']} "

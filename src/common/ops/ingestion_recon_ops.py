@@ -43,6 +43,17 @@ from common.ops.recon_store import (
     write_recon_ready_rows,
 )
 from common.ops.source_ct_ops import run_source_ct_count
+from common.ops.sql_server_audit_store import (
+    CtPendingCounts,
+    complete_recon_run,
+    insert_recon_run,
+    open_audit_connection,
+    record_recon_table_result,
+    resolve_source_ct_for_recon,
+    upsert_db_watermark,
+    upsert_table_watermark,
+    write_audit_log,
+)
 
 
 def table_configs_from_effective(
@@ -202,6 +213,9 @@ def run_pipeline_recon(
     src_schema: str,
     pipeline_rows: list[dict[str, Any]],
     rest_client: DatabricksRestClient | None = None,
+    client: Any | None = None,
+    dbutils: Any | None = None,
+    use_sql_server_audit: bool = True,
 ) -> tuple[int, int, int]:
     """
     Run recon for one ingestion pipeline context from pre-fetched event_log rows.
@@ -228,6 +242,33 @@ def run_pipeline_recon(
     ready_written = 0
     process_rows: list[Any] = []
 
+    audit_conn = None
+    recon_run_id: str | None = None
+    needs_sql_audit = (
+        use_sql_server_audit
+        and client is not None
+        and any(s.recon_type in (2, 3) for s in summaries)
+    )
+    if needs_sql_audit:
+        try:
+            audit_conn, _ = open_audit_connection(client, dbutils=dbutils)
+            sample_update = summaries[0].update_id if summaries else ""
+            recon_run_id = insert_recon_run(
+                audit_conn,
+                client_nm=client.client_nm,
+                database_name=client.src_db_nm,
+                pipeline_id=ctx.pipeline_id,
+                update_id=sample_update,
+                pipeline_key=ctx.pipeline_key,
+            )
+        except Exception as exc:
+            print(f"WARN SQL Server audit connection failed for {ctx.pipeline_key}: {exc}")
+            audit_conn = None
+            recon_run_id = None
+
+    pass_count = 0
+    fail_count = 0
+
     for summary in summaries:
         if recon_already_recorded(
             spark, catalog, metadata_schema, summary.pipeline_id, summary.update_id, summary.flow_name
@@ -235,19 +276,82 @@ def run_pipeline_recon(
             continue
 
         source_count: int | None = None
+        pending = None
+        watermark_before = 0
+        ct_head = 0
         if summary.recon_type in (2, 3):
-            source_count = run_source_ct_count(
-                spark,
-                src_catalog,
-                src_schema,
-                summary.table_name,
-                summary.first_event_time,
-                summary.last_event_time,
-                summary.recon_type,
-            )
+            if audit_conn is not None and client is not None:
+                try:
+                    source_count, pending, watermark_before, ct_head = resolve_source_ct_for_recon(
+                        audit_conn,
+                        client,
+                        src_schema,
+                        summary.table_name,
+                        summary.recon_type,
+                        pipeline_key=ctx.pipeline_key,
+                    )
+                except Exception as exc:
+                    print(
+                        f"WARN SQL audit CT count failed {ctx.pipeline_key} "
+                        f"{summary.table_name}: {exc}"
+                    )
+                    source_count = None
+            else:
+                source_count = run_source_ct_count(
+                    spark,
+                    src_catalog,
+                    src_schema,
+                    summary.table_name,
+                    watermark_before,
+                    ct_head or None,
+                    summary.recon_type,
+                )
 
         evaluated = evaluate_recon(summary, source_count)
         summaries_written += write_flow_summary_rows(spark, catalog, metadata_schema, [evaluated])
+
+        if audit_conn is not None and client is not None and summary.recon_type in (2, 3):
+            sync_status = evaluated.recon_status
+            if evaluated.recon_status == "PASS":
+                pass_count += 1
+            elif evaluated.recon_status == "FAIL":
+                fail_count += 1
+            watermark_advanced = evaluated.recon_status == "PASS" and ct_head > 0
+            if watermark_advanced:
+                upsert_table_watermark(
+                    audit_conn,
+                    client.src_db_nm,
+                    src_schema,
+                    summary.table_name,
+                    ct_head,
+                    client_nm=client.client_nm,
+                    pipeline_key=ctx.pipeline_key,
+                )
+                upsert_db_watermark(audit_conn, client.src_db_nm, ct_head, client_nm=client.client_nm)
+            try:
+                record_recon_table_result(
+                    audit_conn,
+                    recon_run_id=recon_run_id,
+                    client_nm=client.client_nm,
+                    database_name=client.src_db_nm,
+                    schema_name=src_schema,
+                    table_name=summary.table_name,
+                    pipeline_id=summary.pipeline_id,
+                    update_id=summary.update_id,
+                    flow_name=summary.flow_name,
+                    recon_type=summary.recon_type,
+                    watermark_before=watermark_before,
+                    ct_head_version=ct_head,
+                    pending=pending or CtPendingCounts(),
+                    ingest_upserted=evaluated.total_upserted,
+                    ingest_deleted=evaluated.total_deleted,
+                    ingest_change_rows=evaluated.total_change_rows,
+                    sync_status=sync_status,
+                    recon_message=evaluated.recon_message,
+                    watermark_advanced=watermark_advanced,
+                )
+            except Exception as exc:
+                print(f"WARN record_recon_table_result failed: {exc}")
 
         if evaluated.recon_status == "PASS":
             ready = ReconReadyRow(
@@ -309,6 +413,27 @@ def run_pipeline_recon(
     if process_rows:
         write_process_log_rows(spark, catalog, metadata_schema, process_rows)
 
+    if audit_conn is not None and recon_run_id:
+        run_status = "PASS" if fail_count == 0 and pass_count > 0 else "FAIL" if fail_count else "SKIPPED"
+        run_message = f"pass={pass_count} fail={fail_count}"
+        try:
+            complete_recon_run(audit_conn, recon_run_id, run_status=run_status, run_message=run_message)
+            write_audit_log(
+                audit_conn,
+                "RECON_PIPELINE_COMPLETE",
+                client_nm=client.client_nm if client else "",
+                database_name=client.src_db_nm if client else "",
+                pipeline_id=ctx.pipeline_id,
+                update_id=summaries[0].update_id if summaries else "",
+                detail={"pipeline_key": ctx.pipeline_key, "pass": pass_count, "fail": fail_count},
+            )
+        except Exception as exc:
+            print(f"WARN complete_recon_run failed: {exc}")
+        try:
+            audit_conn.close()
+        except Exception:
+            pass
+
     return merged, summaries_written, ready_written
 
 
@@ -316,8 +441,10 @@ def run_all_pipeline_recon(
     spark,
     catalog: str,
     metadata_schema: str,
-    pipeline_contexts: list[tuple[Any, str, str]],
+    pipeline_contexts: list[tuple[Any, str, str, Any]],
     lookback_hours: int = 24,
+    dbutils: Any | None = None,
+    use_sql_server_audit: bool = True,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     totals = {
@@ -329,13 +456,13 @@ def run_all_pipeline_recon(
         "skipped": 0,
         "new_events": 0,
     }
-    client = DatabricksRestClient()
+    rest_client = DatabricksRestClient()
     polled_at = datetime.now(timezone.utc)
 
-    pipeline_ids = [ctx.pipeline_id for ctx, _, _ in pipeline_contexts if ctx.pipeline_id]
-    for ctx, _, _ in pipeline_contexts:
+    pipeline_ids = [ctx.pipeline_id for ctx, _, _, _ in pipeline_contexts if ctx.pipeline_id]
+    for ctx, _, _, _ in pipeline_contexts:
         if not ctx.pipeline_id:
-            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, client)
+            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
         if ctx.pipeline_id:
             pipeline_ids.append(ctx.pipeline_id)
     watermarks = read_recon_event_log_watermarks(
@@ -345,16 +472,16 @@ def run_all_pipeline_recon(
         sorted(set(pipeline_ids)),
     )
 
-    for ctx, src_catalog, src_schema in pipeline_contexts:
+    for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
         if not ctx.pipeline_id:
-            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, client)
+            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
         if not ctx.pipeline_id:
             print(f"{ctx.pipeline_key}: SKIP no pipeline_id")
             totals["skipped"] += 1
             continue
 
-        detail = client.get(f"/api/2.0/pipelines/{ctx.pipeline_id}") or {}
+        detail = rest_client.get(f"/api/2.0/pipelines/{ctx.pipeline_id}") or {}
         watermark = watermarks.get(ctx.pipeline_id)
         needs_poll, reason = pipeline_needs_event_log_poll(detail, watermark)
 
@@ -413,7 +540,10 @@ def run_all_pipeline_recon(
             src_catalog,
             src_schema,
             pipeline_rows=pipeline_rows,
-            rest_client=client,
+            rest_client=rest_client,
+            client=ipac_client,
+            dbutils=dbutils,
+            use_sql_server_audit=use_sql_server_audit,
         )
         totals["metrics"] += m
         totals["summaries"] += s
@@ -428,12 +558,12 @@ def build_contexts_for_client(
     effective_tables: list[Any],
     dest_schema_suffix: str,
     pipeline_keys: list[str],
-) -> list[tuple[Any, str, str]]:
+) -> list[tuple[Any, str, str, Any]]:
     raw_schema = client.raw_schema(dest_schema_suffix)
     table_cfgs = table_configs_from_effective(client.client_nm, raw_schema, effective_tables)
     src_catalog = client.src_db_nm
     src_schema = client.src_db_schema or "dbo"
-    out: list[tuple[Any, str, str]] = []
+    out: list[tuple[Any, str, str, Any]] = []
     for key in pipeline_keys:
         pipeline_key = normalize_pipeline_key(key)
         if not pipeline_key.startswith("p_"):
@@ -441,5 +571,5 @@ def build_contexts_for_client(
         if client.client_nm not in pipeline_key:
             continue
         ctx = build_pipeline_recon_context(pipeline_key, table_cfgs)
-        out.append((ctx, src_catalog, src_schema))
+        out.append((ctx, src_catalog, src_schema, client))
     return out

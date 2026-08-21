@@ -47,6 +47,11 @@ class ClientEntry(BaseModel):
     uc_conn_nm: str
     client_size: ClientSize = "medium"
     cluster_tier: ClusterTierName = "j2"
+    sql_host: str = ""
+    sql_port: int = 1433
+    sql_audit_secret_scope: str = "scope_ipacs_audit"
+    sql_audit_username_secret_key: str = "SQL_SERVER_AUDIT_USERNAME"
+    sql_audit_password_secret_key: str = "SQL_SERVER_AUDIT_PASSWORD"
 
     def raw_schema(self, suffix: str = "") -> str:
         """UC schema for raw tables and staging — {client_nm}{suffix}."""

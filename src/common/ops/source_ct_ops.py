@@ -1,21 +1,16 @@
 """SQL Server Change Tracking (CT) counts for ingestion reconciliation (recon_type 2/3).
 
-PK tables use ENABLE CHANGE_TRACKING (see *_enable_ct.sql). This module queries
-CHANGETABLE + sys.dm_tran_commit_time — not CDC change tables.
+Uses version-based CHANGETABLE queries (no sys.dm_tran_commit_time). Direct execution
+via pymssql lives in source_ct_direct.py; Spark federation helpers remain for optional probes.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 # CHANGETABLE SYS_CHANGE_OPERATION: I=insert, U=update, D=delete
 CT_OPS_CHANGE_ROWS = ("I", "U", "D")
 CT_OPS_UPSERT_ROWS = ("I", "U")
-
-
-def _format_sql_datetime(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _ops_for_recon_type(recon_type: int) -> tuple[str, ...]:
@@ -36,50 +31,63 @@ def _federated_table(src_catalog: str, src_schema: str, table_nm: str) -> str:
     return f"{src_catalog}.{schema}.{table_nm}"
 
 
-def build_ct_count_sql(
+def build_version_ct_count_sql(
     src_schema: str,
     table_nm: str,
-    start_time: datetime,
-    end_time: datetime,
+    version_before: int,
+    version_after: int | None,
     recon_type: int,
 ) -> str:
-    """Count CT changes in [start_time, end_time] via CHANGETABLE(CHANGES ..., 0)."""
+    """Count CT rows with sys_change_version in (version_before, version_after]."""
     qualified = _qualified_table(src_schema, table_nm)
     ops = _ops_for_recon_type(recon_type)
     ops_sql = ", ".join(f"'{op}'" for op in ops)
-    start_s = _format_sql_datetime(start_time)
-    end_s = _format_sql_datetime(end_time)
+    upper_filter = ""
+    if version_after is not None:
+        upper_filter = f"\n  AND ct.sys_change_version <= {int(version_after)}"
     return f"""
 SELECT COUNT_BIG(*) AS change_rows
-FROM CHANGETABLE(CHANGES {qualified}, 0) AS ct
-INNER JOIN sys.dm_tran_commit_time AS txn ON ct.sys_change_version = txn.version
-WHERE txn.commit_time >= CAST('{start_s}' AS DATETIME2)
-  AND txn.commit_time <= CAST('{end_s}' AS DATETIME2)
-  AND ct.SYS_CHANGE_OPERATION IN ({ops_sql})
+FROM CHANGETABLE(CHANGES {qualified}, {int(version_before)}) AS ct
+WHERE ct.SYS_CHANGE_OPERATION IN ({ops_sql}){upper_filter}
 """.strip()
+
+
+def build_ct_count_sql(
+    src_schema: str,
+    table_nm: str,
+    version_before: int,
+    version_after: int | None,
+    recon_type: int,
+) -> str:
+    """Alias for build_version_ct_count_sql (native two-part table name)."""
+    return build_version_ct_count_sql(
+        src_schema,
+        table_nm,
+        version_before,
+        version_after,
+        recon_type,
+    )
 
 
 def build_federated_ct_count_sql(
     src_catalog: str,
     src_schema: str,
     table_nm: str,
-    start_time: datetime,
-    end_time: datetime,
+    version_before: int,
+    version_after: int | None,
     recon_type: int,
 ) -> str:
-    """CT count SQL for Unity Catalog federated SQL Server catalog (three-part name)."""
+    """Version-based CT count for UC federated catalog (three-part name)."""
     qualified = _federated_table(src_catalog, src_schema, table_nm)
     ops = _ops_for_recon_type(recon_type)
     ops_sql = ", ".join(f"'{op}'" for op in ops)
-    start_s = _format_sql_datetime(start_time)
-    end_s = _format_sql_datetime(end_time)
+    upper_filter = ""
+    if version_after is not None:
+        upper_filter = f"\n  AND ct.sys_change_version <= {int(version_after)}"
     return f"""
 SELECT COUNT_BIG(*) AS change_rows
-FROM CHANGETABLE(CHANGES {qualified}, 0) AS ct
-INNER JOIN sys.dm_tran_commit_time AS txn ON ct.sys_change_version = txn.version
-WHERE txn.commit_time >= CAST('{start_s}' AS DATETIME2)
-  AND txn.commit_time <= CAST('{end_s}' AS DATETIME2)
-  AND ct.SYS_CHANGE_OPERATION IN ({ops_sql})
+FROM CHANGETABLE(CHANGES {qualified}, {int(version_before)}) AS ct
+WHERE ct.SYS_CHANGE_OPERATION IN ({ops_sql}){upper_filter}
 """.strip()
 
 
@@ -122,14 +130,11 @@ def probe_source_ct_connection(
     table_nm: str,
     *,
     recon_type: int = 2,
-    start_time: datetime | None = None,
-    end_time: datetime | None = None,
+    version_before: int | None = None,
+    version_after: int | None = None,
     print_results: bool = True,
 ) -> dict[str, Any]:
-    """
-  Run connectivity + Change Tracking version probes against federated SQL Server.
-  Returns a dict suitable for logging; prints when print_results=True.
-  """
+    """Run connectivity + CT version probes against federated SQL Server (Spark SQL)."""
     qualified = _federated_table(src_catalog, src_schema, table_nm)
     result: dict[str, Any] = {
         "src_catalog": src_catalog,
@@ -148,10 +153,8 @@ def probe_source_ct_connection(
             print(message)
 
     _log(f"[CT probe] federated table: {qualified}")
-    _log(f"[CT probe] uc_conn uses catalog name from client.src_db_nm (same as ingest source_catalog)")
 
     conn_sql = build_ct_connection_probe_sql(src_catalog, src_schema, table_nm)
-    _log(f"[CT probe] connection SQL: {conn_sql}")
     try:
         spark.sql(conn_sql).collect()
         result["connection_ok"] = True
@@ -161,41 +164,36 @@ def probe_source_ct_connection(
         _log(f"[CT probe] connection FAILED: {exc}")
 
     max_sql = build_ct_max_version_sql(src_catalog, src_schema, table_nm)
-    _log(f"[CT probe] max version SQL: {max_sql}")
     ok, max_ver, err = _collect_scalar(spark, max_sql, "max_change_version")
     if ok:
         result["max_change_version"] = max_ver
         _log(f"[CT probe] max sys_change_version in CHANGETABLE: {max_ver}")
-    else:
+    elif err:
         result["errors"].append(f"max_version: {err}")
-        _log(f"[CT probe] max version query FAILED: {err}")
 
     cur_sql = build_ct_current_version_sql(src_catalog)
-    _log(f"[CT probe] current version SQL: {cur_sql}")
     ok, cur_ver, err = _collect_scalar(spark, cur_sql, "current_ct_version")
     if ok:
         result["current_ct_version"] = cur_ver
         _log(f"[CT probe] CHANGE_TRACKING_CURRENT_VERSION(): {cur_ver}")
-    else:
+    elif err:
         result["errors"].append(f"current_version: {err}")
-        _log(f"[CT probe] current version query FAILED (optional): {err}")
 
-    if start_time is not None and end_time is not None:
+    if version_before is not None:
         count_sql = build_federated_ct_count_sql(
-            src_catalog, src_schema, table_nm, start_time, end_time, recon_type
+            src_catalog,
+            src_schema,
+            table_nm,
+            version_before,
+            version_after,
+            recon_type,
         )
-        _log(f"[CT probe] window count SQL (recon_type={recon_type}): {count_sql}")
         ok, window_count, err = _collect_scalar(spark, count_sql, "change_rows")
         if ok:
             result["window_change_rows"] = window_count
-            _log(
-                f"[CT probe] change rows in [{start_time} .. {end_time}]: {window_count}"
-            )
-        else:
+            _log(f"[CT probe] change rows versions {version_before}..{version_after}: {window_count}")
+        elif err:
             result["errors"].append(f"window_count: {err}")
-            _log(f"[CT probe] window count FAILED: {err}")
-    else:
-        _log("[CT probe] window count skipped (no start_time/end_time provided)")
 
     return result
 
@@ -205,8 +203,8 @@ def run_source_ct_count(
     src_catalog: str,
     src_schema: str,
     table_nm: str,
-    start_time: datetime,
-    end_time: datetime,
+    version_before: int,
+    version_after: int | None,
     recon_type: int,
     verbose: bool = False,
 ) -> int | None:
@@ -215,26 +213,26 @@ def run_source_ct_count(
         src_catalog,
         src_schema,
         table_nm,
-        start_time,
-        end_time,
+        version_before,
+        version_after,
         recon_type,
     )
     if verbose:
         print(
-            f"[CT recon] catalog={src_catalog} schema={src_schema} table={table_nm} "
-            f"recon_type={recon_type} window={start_time} .. {end_time}"
+            f"[CT recon federated] catalog={src_catalog} schema={src_schema} table={table_nm} "
+            f"versions={version_before}..{version_after} recon_type={recon_type}"
         )
-        print(f"[CT recon] SQL: {sql}")
+        print(f"[CT recon federated] SQL: {sql}")
     try:
         row = spark.sql(sql).collect()[0]
         value = row["change_rows"]
         count = int(value) if value is not None else 0
         if verbose:
-            print(f"[CT recon] change_rows={count}")
+            print(f"[CT recon federated] change_rows={count}")
         return count
     except Exception as exc:
         if verbose:
-            print(f"[CT recon] FAILED: {exc}")
+            print(f"[CT recon federated] FAILED: {exc}")
         return None
 
 
@@ -243,8 +241,8 @@ def run_source_cdc_count(
     src_catalog: str,
     src_schema: str,
     table_nm: str,
-    start_time: datetime,
-    end_time: datetime,
+    version_before: int,
+    version_after: int | None,
     recon_type: int,
     capture_instance: str | None = None,
 ) -> int | None:
@@ -255,8 +253,8 @@ def run_source_cdc_count(
         src_catalog,
         src_schema,
         table_nm,
-        start_time,
-        end_time,
+        version_before,
+        version_after,
         recon_type,
     )
 

@@ -37,13 +37,51 @@ ipac-sdt-calc reads recon_ready / process_log
 
 **Separate from heartbeat:** `j_ipac_delta_sync_pipeline_heartbeat_monitor` checks pipeline health (RUNNING, stale heartbeat). Recon checks **per-table flow completion and row metrics**.
 
-## `recon_type` (per table in `common_tables.json`)
+## SQL Server `master.ipac_metadata` (CT watermarks + audit)
+
+Low-latency CT state lives on **SQL Server** (not Delta). Databricks recon reads/writes via pymssql + secret scope `scope_ipacs_audit`.
+
+### Setup (SSMS + Databricks CLI)
+
+1. Run SQL scripts in order from `src/common/sql_server/sql/` (connected to `master`):
+   - `001_create_schema.sql`
+   - `002_watermark_tables.sql`
+   - `003_recon_audit_tables.sql`
+   - `004_grants.sql` (replace `YOUR_AUDIT_SQL_LOGIN`)
+   - Optional: `005_poll_changed_tables.sql`, `006_recon_views.sql`
+
+2. Create Databricks secrets:
+
+```bash
+databricks secrets create-scope scope_ipacs_audit
+databricks secrets put-secret scope_ipacs_audit SQL_SERVER_AUDIT_USERNAME
+databricks secrets put-secret scope_ipacs_audit SQL_SERVER_AUDIT_PASSWORD
+```
+
+Or: `./src/common/sql_server/setup_audit_secrets.sh --profile <profile>`
+
+3. Set `sql_host` in `config/common/client.json` for each client.
+
+### SQL Server tables
+
+| Table | Purpose |
+|-------|---------|
+| `ipac_metadata.ct_db_watermark` | DB-level CT head snapshot |
+| `ipac_metadata.ct_table_watermark` | Per-table last reconciled CT version |
+| `ipac_metadata.recon_run` | One row per pipeline recon batch |
+| `ipac_metadata.recon_table_result` | CT pending I/U/D vs ingestion metrics |
+| `ipac_metadata.ingestion_audit_log` | General audit events |
+
+On **PASS**, recon advances `ct_table_watermark` to `CHANGE_TRACKING_CURRENT_VERSION()`.
+
+See [src/common/sql_server/README.md](src/common/sql_server/README.md).
+
 
 | Value | Meaning | PASS condition |
 |-------|---------|----------------|
 | `1` | Metrics only | Flow reaches `COMPLETED`; no SQL compare |
-| `2` | Full change rows | `total_upserted + total_deleted` = CT **I + U + D** in flow time window |
-| `3` | Upserts only | `total_upserted` = CT **I + U** in flow time window |
+| `2` | Full change rows | `total_upserted + total_deleted` = CT **I + U + D** since SQL watermark |
+| `3` | Upserts only | `total_upserted` = CT **I + U** since SQL watermark |
 
 Override per table in `config/common/client_overrides/<client_nm>.json` (`extra` / same fields as common tables).
 

@@ -9,7 +9,12 @@
     "src_db_schema": "dbo",
     "uc_conn_nm": "iPC_2025_Dev7_15350",
     "client_size": "medium",
-    "cluster_tier": "j2"
+    "cluster_tier": "j2",
+    "sql_host": "",
+    "sql_port": 1433,
+    "sql_audit_secret_scope": "scope_ipacs_audit",
+    "sql_audit_username_secret_key": "SQL_SERVER_AUDIT_USERNAME",
+    "sql_audit_password_secret_key": "SQL_SERVER_AUDIT_PASSWORD"
   },
   {
     "client_nm": "iPC_2025_Dev7_15447",
@@ -17,11 +22,16 @@
     "volume": "",
     "priority": 100,
     "is_active": true,
-    "src_db_nm": "iPC_2025_Dev7_15447",
+    "src_db_nm": "iPC_2025_DEV7_15447",
     "src_db_schema": "dbo",
     "uc_conn_nm": "iPC_2025_Dev7_15447",
     "client_size": "medium",
-    "cluster_tier": "j2"
+    "cluster_tier": "j2",
+    "sql_host": "",
+    "sql_port": 1433,
+    "sql_audit_secret_scope": "scope_ipacs_audit",
+    "sql_audit_username_secret_key": "SQL_SERVER_AUDIT_USERNAME",
+    "sql_audit_password_secret_key": "SQL_SERVER_AUDIT_PASSWORD"
   },
   {
     "client_nm": "iPC_2025_Dev7_15347",
@@ -31,9 +41,13 @@
     "is_active": true,
     "src_db_nm": "iPC_2025_Dev7_15347",
     "src_db_schema": "dbo",
-    "uc_conn_nm": "iPC_2025_Dev7_15447",
+    "uc_conn_nm": "iPC_2025_Dev7_15347",
     "client_size": "medium",
-    "cluster_tier": "j2"
+    "cluster_tier": "j2",
+    "sql_host": "",
+    "sql_port": 1433,
+    "sql_audit_secret_scope": "scope_ipacs_audit",
+    "sql_audit_username_secret_key": "SQL_SERVER_AUDIT_USERNAME",
+    "sql_audit_password_secret_key": "SQL_SERVER_AUDIT_PASSWORD"
   }
 ]
-

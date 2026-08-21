@@ -218,15 +218,13 @@ def test_flow_progress_extract_sql_parses_table_from_flow_name():
 
 
 def test_ct_count_sql_uses_changetable_operations():
-    start = _ts(0)
-    end = _ts(10)
-    sql = build_ct_count_sql("dbo", "Entity", start, end, recon_type=2)
-    assert "CHANGETABLE(CHANGES dbo.Entity, 0)" in sql
+    sql = build_ct_count_sql("dbo", "Entity", 8800, 8842, recon_type=2)
+    assert "CHANGETABLE(CHANGES dbo.Entity, 8800)" in sql
     assert "SYS_CHANGE_OPERATION IN ('I', 'U', 'D')" in sql
-    assert "sys.dm_tran_commit_time" in sql
+    assert "sys_change_version <= 8842" in sql
 
-    sql3 = build_ct_count_sql("dbo", "Entity", start, end, recon_type=3)
+    sql3 = build_ct_count_sql("dbo", "Entity", 8800, 8842, recon_type=3)
     assert "SYS_CHANGE_OPERATION IN ('I', 'U')" in sql3
 
-    fed = build_federated_ct_count_sql("src_cat", "dbo", "Entity", start, end, 2)
-    assert "CHANGETABLE(CHANGES src_cat.dbo.Entity, 0)" in fed
+    fed = build_federated_ct_count_sql("src_cat", "dbo", "Entity", 8800, 8842, 2)
+    assert "CHANGETABLE(CHANGES src_cat.dbo.Entity, 8800)" in fed

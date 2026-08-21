@@ -1,18 +1,13 @@
 """Tests for SQL Server Change Tracking probe and count SQL builders."""
 
-from datetime import datetime, timezone
-
 from common.ops.source_ct_ops import (
     build_ct_connection_probe_sql,
     build_ct_current_version_sql,
+    build_ct_count_sql,
     build_ct_max_version_sql,
     build_federated_ct_count_sql,
     probe_source_ct_connection,
 )
-
-
-def _ts() -> datetime:
-    return datetime(2026, 8, 16, 10, 0, 0, tzinfo=timezone.utc)
 
 
 def test_build_ct_connection_probe_sql():
@@ -59,16 +54,14 @@ def test_probe_source_ct_connection_with_mock_spark():
             raise AssertionError(query)
 
     spark = _Spark()
-    end = _ts()
-    start = datetime(2026, 8, 16, 9, 0, 0, tzinfo=timezone.utc)
     result = probe_source_ct_connection(
         spark,
         "src_cat",
         "dbo",
         "Entity",
         recon_type=2,
-        start_time=start,
-        end_time=end,
+        version_before=10,
+        version_after=99,
         print_results=False,
     )
     assert result["connection_ok"] is True
@@ -79,9 +72,18 @@ def test_probe_source_ct_connection_with_mock_spark():
 
 
 def test_federated_ct_count_sql_operations_by_recon_type():
-    start = _ts()
-    end = datetime(2026, 8, 16, 10, 5, 0, tzinfo=timezone.utc)
-    sql2 = build_federated_ct_count_sql("c", "dbo", "T", start, end, 2)
-    sql3 = build_federated_ct_count_sql("c", "dbo", "T", start, end, 3)
+    sql2 = build_federated_ct_count_sql("c", "dbo", "T", 100, 200, 2)
+    sql3 = build_federated_ct_count_sql("c", "dbo", "T", 100, 200, 3)
+    assert "CHANGETABLE(CHANGES c.dbo.T, 100)" in sql2
+    assert "sys_change_version <= 200" in sql2
+    assert "('I', 'U', 'D')" in sql2
+    assert "('I', 'U')" in sql3
+
+
+def test_native_ct_count_sql_operations_by_recon_type():
+    sql2 = build_ct_count_sql("dbo", "Entity", 8800, 8842, recon_type=2)
+    sql3 = build_ct_count_sql("dbo", "Entity", 8800, 8842, recon_type=3)
+    assert "CHANGETABLE(CHANGES dbo.Entity, 8800)" in sql2
+    assert "SYS_CHANGE_VERSION <= 8842" in sql2
     assert "('I', 'U', 'D')" in sql2
     assert "('I', 'U')" in sql3
