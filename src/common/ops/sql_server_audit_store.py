@@ -1,4 +1,4 @@
-"""Read/write master.ipac_metadata CT watermarks and recon audit rows via pymssql."""
+"""Read/write master.ipac_metadata CT watermarks and recon audit rows via mssql-python."""
 
 from __future__ import annotations
 

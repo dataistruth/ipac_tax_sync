@@ -1,4 +1,4 @@
-"""Direct SQL Server access for Change Tracking recon counts (pyodbc preferred on Databricks)."""
+"""Direct SQL Server access for Change Tracking recon via mssql-python."""
 
 from __future__ import annotations
 
@@ -8,14 +8,9 @@ from typing import Any, Protocol
 from common.ops.source_ct_ops import build_version_ct_count_sql
 
 try:
-    import pyodbc
+    from mssql_python import connect as mssql_python_connect
 except ImportError:  # pragma: no cover
-    pyodbc = None  # type: ignore[assignment]
-
-try:
-    import pymssql
-except ImportError:  # pragma: no cover
-    pymssql = None  # type: ignore[assignment]
+    mssql_python_connect = None  # type: ignore[assignment,misc]
 
 
 class _DbutilsSecrets(Protocol):
@@ -31,32 +26,14 @@ class SqlServerDirectConfig:
     password: str
 
 
-def _pick_odbc_driver() -> str:
-    if pyodbc is None:
-        raise RuntimeError("pyodbc is not installed")
-    drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
-    for preferred in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"):
-        if preferred in drivers:
-            return preferred
-    if not drivers:
-        raise RuntimeError(
-            "No SQL Server ODBC driver found. Run cluster init script install_sql_recon_dependencies.sh "
-            "or install msodbcsql18 on the cluster."
-        )
-    return drivers[-1]
-
-
-def build_pyodbc_connection_string(config: SqlServerDirectConfig, *, driver: str | None = None) -> str:
-    odbc_driver = driver or _pick_odbc_driver()
+def build_mssql_python_connection_string(config: SqlServerDirectConfig) -> str:
     return (
-        f"DRIVER={{{odbc_driver}}};"
-        f"SERVER={config.host},{config.port};"
-        f"DATABASE={config.database};"
+        f"Server={config.host},{config.port};"
+        f"Database={config.database};"
         f"UID={config.username};"
         f"PWD={config.password};"
         "Encrypt=yes;"
         "TrustServerCertificate=yes;"
-        "Connection Timeout=30;"
     )
 
 
@@ -132,37 +109,16 @@ def resolve_sql_server_config(
     )
 
 
-def open_sql_server_connection(config: SqlServerDirectConfig, *, prefer: str = "pyodbc") -> Any:
-    """Open a SQL connection. Prefer pyodbc on Databricks (pymssql can crash the kernel)."""
-    errors: list[str] = []
-    if prefer != "pymssql" and pyodbc is not None:
-        try:
-            conn_str = build_pyodbc_connection_string(config)
-            return pyodbc.connect(conn_str, autocommit=True)
-        except Exception as exc:
-            errors.append(f"pyodbc: {exc}")
-
-    if pymssql is not None:
-        try:
-            return pymssql.connect(
-                server=config.host,
-                port=config.port,
-                user=config.username,
-                password=config.password,
-                database=config.database,
-                login_timeout=30,
-                timeout=300,
-                tds_version="7.4",
-            )
-        except Exception as exc:
-            errors.append(f"pymssql: {exc}")
-
-    if pyodbc is None and pymssql is None:
+def open_sql_server_connection(config: SqlServerDirectConfig) -> Any:
+    """Open a SQL connection using mssql-python (install via %pip in notebook)."""
+    if mssql_python_connect is None:
         raise RuntimeError(
-            "Neither pyodbc nor pymssql is installed. Attach to cluster ipac_sql_recon_shared "
-            "or run install_sql_recon_dependencies.sh init script."
+            "mssql-python is not installed. Run %pip install mssql-python in the notebook first."
         )
-    raise RuntimeError("Failed to connect to SQL Server: " + "; ".join(errors))
+    conn = mssql_python_connect(build_mssql_python_connection_string(config))
+    if hasattr(conn, "autocommit"):
+        conn.autocommit = True
+    return conn
 
 
 def fetch_scalar(conn: Any, sql: str, column: str) -> int | None:

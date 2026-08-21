@@ -39,7 +39,7 @@ ipac-sdt-calc reads recon_ready / process_log
 
 ## SQL Server `master.ipac_metadata` (CT watermarks + audit)
 
-Low-latency CT state lives on **SQL Server** (not Delta). Databricks recon reads/writes via pymssql + secret scope `scope_ipacs_audit`.
+Low-latency CT state lives on **SQL Server** (not Delta). Databricks recon uses **`mssql-python`** (`%pip install` in notebook) + secret scope `scope_ipacs_audit`.
 
 ### Setup (SSMS + Databricks CLI)
 

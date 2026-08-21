@@ -1,7 +1,7 @@
 """SQL Server Change Tracking (CT) counts for ingestion reconciliation (recon_type 2/3).
 
 Uses version-based CHANGETABLE queries (no sys.dm_tran_commit_time). Direct execution
-via pymssql lives in source_ct_direct.py; Spark federation helpers remain for optional probes.
+Direct SQL Server CT counts via mssql-python live in source_ct_direct.py; Spark federation helpers remain for optional probes.
 """
 
 from __future__ import annotations

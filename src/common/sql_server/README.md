@@ -35,7 +35,7 @@ See `config/common/secrets/databricks_secrets_commands.txt` for raw CLI commands
 
 ## Python wiring
 
-- `common.ops.sql_server_audit_store` — read/write watermarks and recon rows via pymssql
+- `common.ops.sql_server_audit_store` — read/write watermarks and recon rows via **mssql-python**
 - `common.ops.ingestion_recon_ops` — uses SQL Server CT watermarks for `recon_type` 2/3
 - `config/common/client.json` — set `sql_host` per client; defaults use `scope_ipacs_audit`
 

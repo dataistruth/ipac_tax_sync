@@ -1,16 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SQL Server — connect with username / password and run SQL
+# MAGIC # SQL Server — connect and run SQL (`mssql-python`)
 # MAGIC
-# MAGIC Use this notebook to:
-# MAGIC - Test connectivity to Azure SQL / SQL Server from Databricks
-# MAGIC - Run ad-hoc SQL (SELECT, TRUNCATE, etc.)
-# MAGIC - Bulk load scale data into `dbo.K1Input_Snapshot` for Lakeflow perf tests
-# MAGIC
-# MAGIC **Credentials:** widget values below, or Databricks secrets (optional).
-# MAGIC
-# MAGIC **Cluster:** attach to **`ipac_sql_recon_shared`** (init script installs ODBC + pyodbc).
-# MAGIC Do **not** use `%pip install pymssql` — it crashes the DBR 15.4 / Python 3.12 kernel (SIGABRT).
+# MAGIC **Driver:** Microsoft `mssql-python` (`%pip install` in cell 1).
+
+# COMMAND ----------
+
+# MAGIC %pip install -q "mssql-python>=1.13.0"
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -20,9 +17,10 @@ dbutils.widgets.text("sql_port", "1433", "SQL port")
 dbutils.widgets.text("sql_database", "iPC_2025_Dev7_15347", "Database name")
 dbutils.widgets.text("sql_username", "", "Username")
 dbutils.widgets.text("sql_password", "", "Password")
-dbutils.widgets.text("secret_scope", "", "Secret scope (auth_mode=secrets)")
-dbutils.widgets.text("secret_user_key", "sql-username", "Secret key: username")
-dbutils.widgets.text("secret_pass_key", "sql-password", "Secret key: password")
+dbutils.widgets.text("secret_scope", "scope_ipacs_audit", "Secret scope (auth_mode=secrets)")
+dbutils.widgets.text("secret_host_key", "SQL_SERVER_HOST", "Secret key: host")
+dbutils.widgets.text("secret_user_key", "SQL_SERVER_AUDIT_USERNAME", "Secret key: username")
+dbutils.widgets.text("secret_pass_key", "SQL_SERVER_AUDIT_PASSWORD", "Secret key: password")
 
 dbutils.widgets.dropdown("action", "test_connection", [
     "test_connection",
@@ -43,11 +41,10 @@ auth_mode = dbutils.widgets.get("auth_mode").strip().lower()
 sql_host = dbutils.widgets.get("sql_host").strip()
 sql_port = int(dbutils.widgets.get("sql_port").strip() or "1433")
 sql_database = dbutils.widgets.get("sql_database").strip()
-sql_username = dbutils.widgets.get("sql_username").strip()
-sql_password = dbutils.widgets.get("sql_password")
 secret_scope = dbutils.widgets.get("secret_scope").strip()
-secret_user_key = dbutils.widgets.get("secret_user_key").strip() or "sql-username"
-secret_pass_key = dbutils.widgets.get("secret_pass_key").strip() or "sql-password"
+secret_host_key = dbutils.widgets.get("secret_host_key").strip() or "SQL_SERVER_HOST"
+secret_user_key = dbutils.widgets.get("secret_user_key").strip() or "SQL_SERVER_AUDIT_USERNAME"
+secret_pass_key = dbutils.widgets.get("secret_pass_key").strip() or "SQL_SERVER_AUDIT_PASSWORD"
 
 action = dbutils.widgets.get("action").strip()
 target_rows = int(dbutils.widgets.get("target_rows").strip() or "10000")
@@ -70,53 +67,40 @@ if action == "load_k1input_snapshot":
 import time
 from typing import Any
 
-import pyodbc
+from mssql_python import connect
 
 
-def _pick_odbc_driver() -> str:
-    drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
-    for preferred in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"):
-        if preferred in drivers:
-            return preferred
-    if not drivers:
-        raise RuntimeError(
-            "No SQL Server ODBC driver found. Attach to cluster ipac_sql_recon_shared "
-            "(init script install_sql_recon_dependencies.sh must have run)."
-        )
-    return drivers[-1]
-
-
-def _resolve_credentials() -> tuple[str, str]:
+def _resolve_credentials() -> tuple[str, str, str]:
     if auth_mode == "secrets":
         if not secret_scope:
             raise ValueError("secret_scope is required when auth_mode=secrets")
+        host = sql_host or dbutils.secrets.get(scope=secret_scope, key=secret_host_key)
         user = dbutils.secrets.get(scope=secret_scope, key=secret_user_key)
         password = dbutils.secrets.get(scope=secret_scope, key=secret_pass_key)
-        return user, password
+        return host, user, password
     if not sql_username:
         raise ValueError("sql_username is required when auth_mode=widgets")
-    return sql_username, sql_password
+    return sql_host, sql_username, sql_password
 
 
-def open_sql_connection() -> pyodbc.Connection:
-    if not sql_host:
+def open_sql_connection() -> Any:
+    host, username, password = _resolve_credentials()
+    if not host:
         raise ValueError("sql_host is required")
     if not sql_database:
         raise ValueError("sql_database is required")
 
-    username, password = _resolve_credentials()
-    driver = _pick_odbc_driver()
     conn_str = (
-        f"DRIVER={{{driver}}};"
-        f"SERVER={sql_host},{sql_port};"
-        f"DATABASE={sql_database};"
+        f"Server={host},{sql_port};"
+        f"Database={sql_database};"
         f"UID={username};"
         f"PWD={password};"
         "Encrypt=yes;"
         "TrustServerCertificate=yes;"
-        "Connection Timeout=30;"
     )
-    return pyodbc.connect(conn_str, autocommit=True)
+    conn = connect(conn_str)
+    conn.autocommit = True
+    return conn
 
 
 def run_query(sql: str, fetch: bool = True) -> list[tuple[Any, ...]] | None:
@@ -132,7 +116,6 @@ def run_query(sql: str, fetch: bool = True) -> list[tuple[Any, ...]] | None:
 
 
 def run_many_statements(sql: str) -> None:
-    """Run semicolon-separated batches (simple split — avoid semicolons in strings)."""
     for batch in [part.strip() for part in sql.split(";") if part.strip()]:
         print(f"--- executing batch ({len(batch)} chars) ---")
         rows = run_query(batch, fetch=True)
@@ -241,17 +224,3 @@ elif action == "load_k1input_snapshot":
 
 else:
     raise ValueError(f"Unknown action: {action}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Optional — enable Change Tracking (for Lakeflow CDC ingest test)
-# MAGIC
-# MAGIC Run with **action = run_custom_sql** and paste (adjust if already enabled):
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Not UC SQL — use widget custom_sql in previous cell, example:
-# MAGIC -- ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 7, AUTO_CLEANUP = ON);
-# MAGIC -- ALTER TABLE dbo.K1Input_Snapshot ENABLE CHANGE_TRACKING WITH (TRACK_COLUMNS_UPDATED = OFF);

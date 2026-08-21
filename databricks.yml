@@ -24,14 +24,12 @@ sync:
   include:
     - src/common/notebooks/**
     - src/common/ops/**
-    - src/common/cluster/**
     - generated/config/**
 
 include:
-  # Deploy order: UC schemas → instance pool → volumes → clusters → pipelines → ops jobs
+  # Deploy order: UC schemas → instance pool → clusters → pipelines → ops jobs
   - generated/config/schema/*.yml
   - resources/instance_pools/*.yml
-  - resources/volumes/*.yml
   - resources/clusters/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
@@ -100,62 +98,6 @@ variables:
   sql_recon_autotermination_minutes:
     default: 0
     description: Auto-termination for ipac_sql_recon_shared (0 = disabled for continuous recon job)
-  sql_recon_init_script_volume_path:
-    default: /Volumes/${var.uc_catalog}/${var.ipac_metadata_schema}/cluster_init/install_sql_recon_dependencies.sh
-    description: UC volume path for SQL/recon cluster init script (shared clusters require volumes, not workspace files)
-  sql_recon_init_volume_allowlist_path:
-    default: /Volumes/${var.uc_catalog}/${var.ipac_metadata_schema}/cluster_init/
-    description: UC volume directory allowlisted for INIT_SCRIPT on standard-access clusters (trailing slash = directory scope)
-
-scripts:
-  upload_sql_recon_init:
-    env:
-      VOLUME_DEST: ${var.sql_recon_init_script_volume_path}
-    content: |
-      set -euo pipefail
-      SRC="src/common/cluster/init/install_sql_recon_dependencies.sh"
-      if [ ! -f "$SRC" ]; then
-        echo "Missing $SRC (run from bundle root)" >&2
-        exit 1
-      fi
-      echo "Uploading $SRC -> dbfs:$VOLUME_DEST"
-      databricks fs cp "$SRC" "dbfs:$VOLUME_DEST" --overwrite
-      echo "Done. Restart ipac_sql_recon_shared if the cluster already exists."
-
-  allowlist_sql_recon_init:
-    env:
-      ALLOWLIST_PATH: ${var.sql_recon_init_volume_allowlist_path}
-    content: |
-      set -euo pipefail
-      python3 - <<'PY'
-      import json, os, subprocess, sys
-
-      new_path = os.environ["ALLOWLIST_PATH"].strip()
-      if not new_path.endswith("/"):
-          new_path += "/"
-
-      proc = subprocess.run(
-          ["databricks", "artifact-allowlists", "get", "INIT_SCRIPT", "-o", "json"],
-          capture_output=True,
-          text=True,
-      )
-      if proc.returncode != 0:
-          current = {"artifact_matchers": []}
-      else:
-          current = json.loads(proc.stdout or "{}")
-
-      matchers = list(current.get("artifact_matchers") or [])
-      if not any(m.get("artifact") == new_path for m in matchers):
-          matchers.append({"artifact": new_path, "match_type": "PREFIX_MATCH"})
-      payload = {"artifact_matchers": matchers}
-      update = subprocess.run(
-          ["databricks", "artifact-allowlists", "update", "INIT_SCRIPT", "--json", json.dumps(payload)],
-          text=True,
-      )
-      sys.exit(update.returncode)
-      PY
-      echo "Allowlisted INIT_SCRIPT prefix: $ALLOWLIST_PATH"
-      echo "Restart ipac_sql_recon_shared after allowlist update."
 
 targets:
   # Deploy with: databricks bundle deploy -t dev

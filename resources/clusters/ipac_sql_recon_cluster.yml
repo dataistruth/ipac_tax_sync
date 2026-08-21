@@ -1,7 +1,5 @@
-# Shared classic cluster for SQL Server CT probes and ingestion recon notebooks.
-# - 8 vCPU single-node (Standard_D8s_v3)
-# - Init script: msodbcsql18/17 + pyodbc
-# Deploy before jobs: databricks bundle deploy -t dev
+# Shared cluster for SQL Server CT recon notebooks + continuous recon job.
+# SQL connectivity: mssql-python installed via %pip in run_ingestion_recon.py (no init script).
 
 resources:
   clusters:
@@ -28,8 +26,3 @@ resources:
           group_name: ${var.grant_group}
         - level: CAN_ATTACH_TO
           group_name: ${var.grant_group}
-      depends_on:
-        - resources.volumes.ipac_cluster_init_volume
-      init_scripts:
-        - volumes:
-            destination: ${var.sql_recon_init_script_volume_path}
