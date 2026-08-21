@@ -26,6 +26,8 @@ resources:
           group_name: ${var.grant_group}
         - level: CAN_ATTACH_TO
           group_name: ${var.grant_group}
+      depends_on:
+        - resources.volumes.ipac_cluster_init_volume
       init_scripts:
-        - workspace:
-            destination: ${workspace.file_path}/src/common/cluster/init/install_sql_recon_dependencies.sh
+        - volumes:
+            destination: ${var.sql_recon_init_script_volume_path}

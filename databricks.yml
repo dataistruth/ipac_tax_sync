@@ -28,9 +28,10 @@ sync:
     - generated/config/**
 
 include:
-  # Deploy order: UC schemas → instance pool → clusters → pipelines → ops jobs
+  # Deploy order: UC schemas → instance pool → volumes → clusters → pipelines → ops jobs
   - generated/config/schema/*.yml
   - resources/instance_pools/*.yml
+  - resources/volumes/*.yml
   - resources/clusters/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
@@ -99,6 +100,24 @@ variables:
   sql_recon_autotermination_minutes:
     default: 0
     description: Auto-termination for ipac_sql_recon_shared (0 = disabled for continuous recon job)
+  sql_recon_init_script_volume_path:
+    default: /Volumes/${var.uc_catalog}/${var.ipac_metadata_schema}/cluster_init/install_sql_recon_dependencies.sh
+    description: UC volume path for SQL/recon cluster init script (shared clusters require volumes, not workspace files)
+
+scripts:
+  upload_sql_recon_init:
+    env:
+      VOLUME_DEST: ${var.sql_recon_init_script_volume_path}
+    content: |
+      set -euo pipefail
+      SRC="src/common/cluster/init/install_sql_recon_dependencies.sh"
+      if [ ! -f "$SRC" ]; then
+        echo "Missing $SRC (run from bundle root)" >&2
+        exit 1
+      fi
+      echo "Uploading $SRC -> dbfs:$VOLUME_DEST"
+      databricks fs cp "$SRC" "dbfs:$VOLUME_DEST" --overwrite
+      echo "Done. Restart ipac_sql_recon_shared if the cluster already exists."
 
 targets:
   # Deploy with: databricks bundle deploy -t dev

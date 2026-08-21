@@ -1,0 +1,16 @@
+# UC volume in ipac_metadata for cluster init scripts.
+# Shared (USER_ISOLATION) clusters require init scripts on volumes, not workspace files.
+# After deploy: databricks bundle run upload_sql_recon_init -t dev
+resources:
+  volumes:
+    ipac_cluster_init_volume:
+      name: cluster_init
+      catalog_name: ${var.uc_catalog}
+      schema_name: ${var.ipac_metadata_schema}
+      volume_type: MANAGED
+      comment: Init scripts for ipac_sql_recon_shared (ODBC driver + pyodbc)
+      grants:
+        - principal: ${var.grant_group}
+          privileges:
+            - READ_FILES
+            - WRITE_FILES

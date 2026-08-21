@@ -242,6 +242,16 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` runs on the shared cluster **`ipac_sql_recon_shared`** (`resources/clusters/ipac_sql_recon_cluster.yml`). That cluster is an 8 vCPU single-node classic cluster with an init script that installs **msodbcsql18** and **pyodbc** for direct SQL Server CT recon (recon_type 2/3).
 
+Init script storage uses UC volume **`cluster_init`** in **`ipac_metadata`** (`resources/volumes/ipac_cluster_init_volume.yml`). Shared clusters cannot use workspace init scripts — upload after deploy:
+
+```bash
+databricks bundle deploy -t dev --select resources.volumes.ipac_cluster_init_volume
+databricks bundle run upload_sql_recon_init -t dev
+databricks bundle deploy -t dev --select resources.clusters.ipac_sql_recon_cluster,resources.jobs.ingestion_recon_monitor
+```
+
+Also add the init script path to the workspace **allowlist** for standard access mode clusters (Admin → Compute → Policy / allowlist).
+
 Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
 
 Attach ad-hoc SQL/CT probe notebooks to the same cluster in the UI (Compute → `ipac_sql_recon_shared`).
