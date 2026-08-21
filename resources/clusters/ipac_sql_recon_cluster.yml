@@ -1,5 +1,5 @@
 # Shared cluster for SQL Server CT recon notebooks + continuous recon job.
-# SQL connectivity: mssql-python installed via %pip in run_ingestion_recon.py (no init script).
+# SQL connectivity: mssql-python + pydantic v2 installed via %pip in run_ingestion_recon.py (no init script).
 
 resources:
   clusters:

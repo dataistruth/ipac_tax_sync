@@ -9,11 +9,11 @@
 # MAGIC
 # MAGIC Continuous loop: poll ingestion event log → compare CT watermarks / counts (recon_type 2/3) → write `recon_ready`.
 # MAGIC
-# MAGIC **SQL driver:** `mssql-python` via `%pip` in cell 1.
+# MAGIC **Dependencies:** `mssql-python` and `pydantic>=2` via `%pip` in cell 1 (runtime ships Pydantic v1).
 
 # COMMAND ----------
 
-# MAGIC %pip install -q "mssql-python>=1.13.0"
+# MAGIC %pip install -q "mssql-python>=1.13.0" "pydantic>=2.0.0"
 dbutils.library.restartPython()
 
 # COMMAND ----------
