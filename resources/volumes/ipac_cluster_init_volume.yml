@@ -12,5 +12,5 @@ resources:
       grants:
         - principal: ${var.grant_group}
           privileges:
-            - READ_FILES
-            - WRITE_FILES
+            - READ_VOLUME
+            - WRITE_VOLUME
