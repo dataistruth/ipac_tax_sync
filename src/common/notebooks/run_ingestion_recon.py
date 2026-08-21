@@ -154,6 +154,7 @@ iteration = 0
 while True:
     iteration += 1
     print(f"--- recon poll {iteration} ---")
+    poll_start = time.perf_counter()
     totals = run_all_pipeline_recon(
         spark,
         uc_catalog,
@@ -163,8 +164,10 @@ while True:
         dbutils=dbutils,
         use_sql_server_audit=use_sql_server_audit,
     )
+    poll_elapsed_sec = time.perf_counter() - poll_start
     print(
-        f"poll {iteration} complete: pipelines={totals['pipelines']} "
+        f"poll {iteration} complete in {poll_elapsed_sec:.1f}s: "
+        f"pipelines={totals['pipelines']} "
         f"polled={totals['polled']} skipped={totals['skipped']} "
         f"new_events={totals['new_events']} metrics={totals['metrics']} "
         f"summaries={totals['summaries']} recon_ready={totals['recon_ready']}"
