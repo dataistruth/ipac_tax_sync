@@ -9,11 +9,8 @@
 # MAGIC
 # MAGIC **Credentials:** widget values below, or Databricks secrets (optional).
 # MAGIC
-# MAGIC **Cluster:** needs outbound network access to SQL Server (1433).
-
-# COMMAND ----------
-
-# MAGIC %pip install -q pymssql
+# MAGIC **Cluster:** attach to **`ipac_sql_recon_shared`** (init script installs ODBC + pyodbc).
+# MAGIC Do **not** use `%pip install pymssql` — it crashes the DBR 15.4 / Python 3.12 kernel (SIGABRT).
 
 # COMMAND ----------
 
@@ -73,7 +70,20 @@ if action == "load_k1input_snapshot":
 import time
 from typing import Any
 
-import pymssql
+import pyodbc
+
+
+def _pick_odbc_driver() -> str:
+    drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
+    for preferred in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"):
+        if preferred in drivers:
+            return preferred
+    if not drivers:
+        raise RuntimeError(
+            "No SQL Server ODBC driver found. Attach to cluster ipac_sql_recon_shared "
+            "(init script install_sql_recon_dependencies.sh must have run)."
+        )
+    return drivers[-1]
 
 
 def _resolve_credentials() -> tuple[str, str]:
@@ -88,24 +98,25 @@ def _resolve_credentials() -> tuple[str, str]:
     return sql_username, sql_password
 
 
-def open_sql_connection() -> pymssql.Connection:
+def open_sql_connection() -> pyodbc.Connection:
     if not sql_host:
         raise ValueError("sql_host is required")
     if not sql_database:
         raise ValueError("sql_database is required")
 
     username, password = _resolve_credentials()
-    return pymssql.connect(
-        server=sql_host,
-        port=sql_port,
-        user=username,
-        password=password,
-        database=sql_database,
-        login_timeout=30,
-        timeout=0,
-        tds_version="7.4",
-        as_dict=False,
+    driver = _pick_odbc_driver()
+    conn_str = (
+        f"DRIVER={{{driver}}};"
+        f"SERVER={sql_host},{sql_port};"
+        f"DATABASE={sql_database};"
+        f"UID={username};"
+        f"PWD={password};"
+        "Encrypt=yes;"
+        "TrustServerCertificate=yes;"
+        "Connection Timeout=30;"
     )
+    return pyodbc.connect(conn_str, autocommit=True)
 
 
 def run_query(sql: str, fetch: bool = True) -> list[tuple[Any, ...]] | None:
@@ -113,7 +124,6 @@ def run_query(sql: str, fetch: bool = True) -> list[tuple[Any, ...]] | None:
     if not sql:
         raise ValueError("SQL is empty")
     with open_sql_connection() as conn:
-        conn.autocommit(True)
         with conn.cursor() as cur:
             cur.execute(sql)
             if fetch and cur.description is not None:
@@ -173,7 +183,6 @@ FROM (
 """
 
     with open_sql_connection() as conn:
-        conn.autocommit(True)
         with conn.cursor() as cur:
             while inserted < total_rows:
                 this_batch = min(batch, total_rows - inserted)

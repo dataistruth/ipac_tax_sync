@@ -6,10 +6,8 @@
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
 # MAGIC compares SQL Server Change Tracking (master.ipac_metadata watermarks) for `recon_type` 2/3,
 # MAGIC writes `recon_ready` + `process_log` on PASS.
-
-# COMMAND ----------
-
-# MAGIC %pip install -q pymssql
+# MAGIC
+# MAGIC **Cluster:** must run on **`ipac_sql_recon_shared`** (pyodbc + ODBC driver). Do not install pymssql.
 
 # COMMAND ----------
 
