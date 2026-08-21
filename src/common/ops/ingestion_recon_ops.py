@@ -35,6 +35,7 @@ from common.ops.recon_store import (
     ReconReadyRow,
     ReconEventLogWatermark,
     qualified_table,
+    resolve_uc_table_ref,
     read_recon_event_log_watermarks,
     RECON_READY_TABLE,
     write_flow_metrics_rows,
@@ -132,28 +133,55 @@ def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> i
 
     Prefers Delta log numRecords (DeltaTable.detail / DESCRIBE DETAIL), then COUNT_BIG.
     """
-    target = qualified_table(catalog, schema, table_nm)
-    try:
-        from delta.tables import DeltaTable
-
-        detail_row = DeltaTable.forName(spark, target).detail().select("numRecords").first()
-        if detail_row is not None:
-            value = detail_row["numRecords"] if "numRecords" in detail_row else detail_row[0]
-            return int(value)
-    except Exception:
-        pass
-    try:
-        detail_row = spark.sql(f"DESCRIBE DETAIL {target}").select("numRecords").first()
-        if detail_row is not None:
-            value = detail_row["numRecords"] if "numRecords" in detail_row else detail_row[0]
-            return int(value)
-    except Exception:
-        pass
-    try:
-        row = spark.sql(f"SELECT COUNT_BIG(*) AS cnt FROM {target}").collect()[0]
-        return int(row["cnt"])
-    except Exception:
+    ref = resolve_uc_table_ref(spark, catalog, schema, table_nm)
+    if ref is None:
         return None
+
+    targets = [ref.name, ref.quoted_name]
+    last_err: str | None = None
+
+    def _row_count_from_detail_row(detail_row: Any) -> int | None:
+        if detail_row is None:
+            return None
+        if hasattr(detail_row, "asDict"):
+            data = detail_row.asDict()
+            value = data.get("numRecords")
+        elif isinstance(detail_row, dict):
+            value = detail_row.get("numRecords")
+        else:
+            value = detail_row["numRecords"] if "numRecords" in detail_row else detail_row[0]
+        if value is None:
+            return None
+        return int(value)
+
+    for target in targets:
+        try:
+            from delta.tables import DeltaTable
+
+            detail_row = DeltaTable.forName(spark, target).detail().select("numRecords").first()
+            count = _row_count_from_detail_row(detail_row)
+            if count is not None:
+                return count
+        except Exception as exc:
+            last_err = str(exc)
+        try:
+            detail_row = spark.sql(f"DESCRIBE DETAIL {target}").select("numRecords").first()
+            count = _row_count_from_detail_row(detail_row)
+            if count is not None:
+                return count
+        except Exception as exc:
+            last_err = str(exc)
+        try:
+            row = spark.sql(f"SELECT COUNT_BIG(*) AS cnt FROM {target}").collect()[0]
+            return int(row["cnt"])
+        except Exception as exc:
+            last_err = str(exc)
+
+    if last_err:
+        print(
+            f"[recon] WARN delta row count failed for {ref.name}: {last_err}"
+        )
+    return None
 
 
 def _flow_metrics_for_table(
@@ -229,6 +257,11 @@ def evaluate_simple_recon(
             return evaluated.recon_status, evaluated.recon_message
 
     if pending.total > 0 and not flow_complete:
+        if pass_rule == "row_count" and (sql_row_count is None or delta_row_count is None):
+            return (
+                "WAITING",
+                f"row_count unavailable sql={sql_row_count} delta={delta_row_count}",
+            )
         return "WAITING", "CT pending; no COMPLETED flow in event log yet"
 
     return "FAIL", "no simple pass rule matched"
@@ -338,16 +371,28 @@ def run_simplified_pipeline_recon(
         else:
             if pass_rule in ("row_count", "auto"):
                 sql_count = fetch_sql_row_count(conn, src_schema, table_nm)
+                uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
                 delta_count = (
                     count_delta_table_rows(spark, catalog, dest_schema, table_nm)
                     if dest_schema
                     else None
                 )
                 if sql_count is not None or delta_count is not None:
+                    resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
+                    if uc_ref and uc_ref.name != qualified_table(catalog, dest_schema, table_nm):
+                        print(
+                            f"[recon] {ctx.pipeline_key} {table_nm}: "
+                            f"resolved UC table {resolved}"
+                        )
                     print(
                         f"[recon] {ctx.pipeline_key} {table_nm}: "
                         f"sql_count={sql_count} delta_count={delta_count} "
-                        f"(delta numRecords) {catalog}.{dest_schema}.{table_nm}"
+                        f"(delta numRecords) {resolved}"
+                    )
+                elif dest_schema:
+                    print(
+                        f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
+                        f"UC table not found {catalog}.{dest_schema}.{table_nm}"
                     )
             status, message = evaluate_simple_recon(
                 summary,

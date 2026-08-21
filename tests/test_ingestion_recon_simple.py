@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 from common.ops.ingestion_recon_ops import count_delta_table_rows, evaluate_simple_recon
 from common.ops.lakeflow_event_ops import FlowSummaryRow
+from common.ops.recon_store import resolve_uc_table_ref, UcTableRef
 from common.ops.sql_server_audit_store import CtPendingCounts
 from datetime import datetime, timezone
 
@@ -70,8 +71,46 @@ def test_evaluate_simple_waiting():
     assert "CT pending" in msg
 
 
+def test_evaluate_simple_waiting_row_count_unavailable():
+    status, msg = evaluate_simple_recon(
+        None,
+        CtPendingCounts(inserts=3),
+        recon_type=1,
+        sql_row_count=100,
+        delta_row_count=None,
+        pass_rule="row_count",
+    )
+    assert status == "WAITING"
+    assert "row_count unavailable" in msg
+
+
+def test_resolve_uc_table_ref_case_insensitive():
+    spark = MagicMock()
+    spark.catalog.tableExists.return_value = False
+    spark.sql.side_effect = [
+        MagicMock(collect=MagicMock(return_value=[("ipc_2025_dev7_15447_poc_1")])),
+        MagicMock(
+            collect=MagicMock(
+                return_value=[MagicMock(tableName="K1Input_Snapshot")]
+            )
+        ),
+    ]
+    ref = resolve_uc_table_ref(
+        spark,
+        "dev7",
+        "iPC_2025_DEV7_15447_poc_1",
+        "K1Input_Snapshot",
+    )
+    assert ref == UcTableRef(
+        catalog="dev7",
+        schema="ipc_2025_dev7_15447_poc_1",
+        table="K1Input_Snapshot",
+    )
+
+
 def test_count_delta_table_rows_uses_describe_detail():
     spark = MagicMock()
+    spark.catalog.tableExists.return_value = True
     spark.sql.return_value.select.return_value.first.return_value = {"numRecords": 42000}
     assert count_delta_table_rows(spark, "cat", "schema", "Table") == 42000
     spark.sql.assert_called_once()

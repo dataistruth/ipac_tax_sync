@@ -147,6 +147,101 @@ def qualified_table(catalog: str, schema: str, table: str) -> str:
     return f"{catalog}.{schema}.{table}"
 
 
+def quote_ident(part: str) -> str:
+    return f"`{part.replace('`', '``')}`"
+
+
+def qualified_table_quoted(catalog: str, schema: str, table: str) -> str:
+    return f"{quote_ident(catalog)}.{quote_ident(schema)}.{quote_ident(table)}"
+
+
+@dataclass(frozen=True)
+class UcTableRef:
+    catalog: str
+    schema: str
+    table: str
+
+    @property
+    def name(self) -> str:
+        return qualified_table(self.catalog, self.schema, self.table)
+
+    @property
+    def quoted_name(self) -> str:
+        return qualified_table_quoted(self.catalog, self.schema, self.table)
+
+
+def resolve_uc_table_ref(
+    spark,
+    catalog: str,
+    schema: str,
+    table: str,
+) -> UcTableRef | None:
+    """
+    Resolve a UC three-part table name with case-insensitive schema/table matching.
+
+    Config often uses mixed-case client_nm while UC stores lowercase schema names.
+    """
+    if not catalog or not schema or not table:
+        return None
+
+    exact = qualified_table(catalog, schema, table)
+    try:
+        if spark.catalog.tableExists(exact):
+            return UcTableRef(catalog=catalog, schema=schema, table=table)
+    except Exception:
+        pass
+
+    sch_cf = schema.casefold()
+    tbl_cf = table.casefold()
+
+    schema_rows: list[Any] = []
+    for stmt in (
+        f"SHOW SCHEMAS IN {quote_ident(catalog)}",
+        f"SHOW SCHEMAS IN {catalog}",
+    ):
+        try:
+            schema_rows = spark.sql(stmt).collect()
+            if schema_rows:
+                break
+        except Exception:
+            continue
+    if not schema_rows:
+        return None
+
+    actual_schema = None
+    for row in schema_rows:
+        name = str(row[0])
+        if name.casefold() == sch_cf:
+            actual_schema = name
+            break
+    if not actual_schema:
+        return None
+
+    table_rows: list[Any] = []
+    for stmt in (
+        f"SHOW TABLES IN {quote_ident(catalog)}.{quote_ident(actual_schema)}",
+        f"SHOW TABLES IN {catalog}.{actual_schema}",
+    ):
+        try:
+            table_rows = spark.sql(stmt).collect()
+            if table_rows:
+                break
+        except Exception:
+            continue
+    if not table_rows:
+        return None
+
+    actual_table = None
+    for row in table_rows:
+        name = str(row.tableName)
+        if name.casefold() == tbl_cf:
+            actual_table = name
+            break
+    if not actual_table:
+        return None
+
+    return UcTableRef(catalog=catalog, schema=actual_schema, table=actual_table)
+
 @dataclass
 class ReconEventLogWatermark:
     pipeline_id: str
