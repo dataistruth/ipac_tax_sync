@@ -240,16 +240,13 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 ### Ingestion flow metrics reconciliation
 
-Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` polls hidden MANAGED_INGESTION event logs via `event_log(pipeline_id)` for pipelines with activity, aggregates per-table `flow_progress` when status = `COMPLETED`, and writes:
-
-- `lakeflow_flow_metrics` — raw event metrics (merge by `event_id`)
-- `lakeflow_flow_summary` — per `(update_id, flow_name)` aggregates
-- `recon_ready` — PASS rows only (calc gate)
-- `process_log` — ingest SUCCESS/FAILED per reconciled table flow
+Job `j_ipac_delta_sync_ingestion_recon_monitor` in `resources/jobs/ingestion_recon_jobs.yml` runs on the shared cluster **`ipac_sql_recon_shared`** (`resources/clusters/ipac_sql_recon_cluster.yml`). That cluster is an 8 vCPU single-node classic cluster with an init script that installs **msodbcsql18** and **pyodbc** for direct SQL Server CT recon (recon_type 2/3).
 
 Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
 
-Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_ct_ops.py`, `recon_store.py`.
+Attach ad-hoc SQL/CT probe notebooks to the same cluster in the UI (Compute → `ipac_sql_recon_shared`).
+
+Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_ct_ops.py`, `source_ct_direct.py`, `recon_store.py`, `sql_server_audit_store.py`.
 
 Generated pipelines no longer publish UC event logs — recon reads the platform hidden log. Regenerate and redeploy after upgrading:
 

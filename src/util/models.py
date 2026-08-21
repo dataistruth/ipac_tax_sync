@@ -49,6 +49,7 @@ class ClientEntry(BaseModel):
     cluster_tier: ClusterTierName = "j2"
     sql_host: str = ""
     sql_port: int = 1433
+    sql_host_secret_key: str = "SQL_SERVER_HOST"
     sql_audit_secret_scope: str = "scope_ipacs_audit"
     sql_audit_username_secret_key: str = "SQL_SERVER_AUDIT_USERNAME"
     sql_audit_password_secret_key: str = "SQL_SERVER_AUDIT_PASSWORD"

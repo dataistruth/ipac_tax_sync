@@ -1,4 +1,4 @@
-"""Direct pymssql access to SQL Server for Change Tracking recon counts."""
+"""Direct SQL Server access for Change Tracking recon counts (pyodbc preferred on Databricks)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,13 @@ from typing import Any, Protocol
 from common.ops.source_ct_ops import build_version_ct_count_sql
 
 try:
+    import pyodbc
+except ImportError:  # pragma: no cover
+    pyodbc = None  # type: ignore[assignment]
+
+try:
     import pymssql
-except ImportError:  # pragma: no cover - optional at import; required at runtime on Databricks
+except ImportError:  # pragma: no cover
     pymssql = None  # type: ignore[assignment]
 
 
@@ -26,6 +31,35 @@ class SqlServerDirectConfig:
     password: str
 
 
+def _pick_odbc_driver() -> str:
+    if pyodbc is None:
+        raise RuntimeError("pyodbc is not installed")
+    drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
+    for preferred in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"):
+        if preferred in drivers:
+            return preferred
+    if not drivers:
+        raise RuntimeError(
+            "No SQL Server ODBC driver found. Run cluster init script install_sql_recon_dependencies.sh "
+            "or install msodbcsql18 on the cluster."
+        )
+    return drivers[-1]
+
+
+def build_pyodbc_connection_string(config: SqlServerDirectConfig, *, driver: str | None = None) -> str:
+    odbc_driver = driver or _pick_odbc_driver()
+    return (
+        f"DRIVER={{{odbc_driver}}};"
+        f"SERVER={config.host},{config.port};"
+        f"DATABASE={config.database};"
+        f"UID={config.username};"
+        f"PWD={config.password};"
+        "Encrypt=yes;"
+        "TrustServerCertificate=yes;"
+        "Connection Timeout=30;"
+    )
+
+
 def resolve_sql_server_config(
     client: Any,
     *,
@@ -37,13 +71,26 @@ def resolve_sql_server_config(
     secret_scope_override: str = "",
     username_secret_key: str = "",
     password_secret_key: str = "",
+    host_secret_key: str = "",
 ) -> SqlServerDirectConfig:
     """Build connection settings from client.json + optional notebook overrides/secrets."""
+    scope = (secret_scope_override or getattr(client, "sql_audit_secret_scope", "") or "").strip()
+    host_key = (
+        host_secret_key
+        or getattr(client, "sql_host_secret_key", "")
+        or "SQL_SERVER_HOST"
+    )
+
     host = (host_override or getattr(client, "sql_host", "") or "").strip()
+    if not host and scope and dbutils is not None:
+        try:
+            host = (dbutils.secrets.get(scope=scope, key=host_key) or "").strip()
+        except Exception:
+            host = ""
     if not host:
         raise ValueError(
             f"sql_host is required for direct CT recon (client={client.client_nm}). "
-            "Set config/common/client.json sql_host or notebook widget sql_host."
+            "Set config/common/client.json sql_host, secret SQL_SERVER_HOST, or notebook widget sql_host."
         )
 
     port = port_override if port_override is not None else int(getattr(client, "sql_port", 1433) or 1433)
@@ -51,16 +98,17 @@ def resolve_sql_server_config(
     if not database:
         raise ValueError(f"src_db_nm is required for client {client.client_nm}")
 
-    scope = (secret_scope_override or getattr(client, "sql_secret_scope", "") or "").strip()
     user_key = (
         username_secret_key
+        or getattr(client, "sql_audit_username_secret_key", "")
         or getattr(client, "sql_username_secret_key", "")
-        or "sql-username"
+        or "SQL_SERVER_AUDIT_USERNAME"
     )
     pass_key = (
         password_secret_key
+        or getattr(client, "sql_audit_password_secret_key", "")
         or getattr(client, "sql_password_secret_key", "")
-        or "sql-password"
+        or "SQL_SERVER_AUDIT_PASSWORD"
     )
 
     if scope and dbutils is not None:
@@ -72,7 +120,7 @@ def resolve_sql_server_config(
         if not username:
             raise ValueError(
                 f"SQL credentials required for client {client.client_nm}. "
-                "Set sql_secret_scope + dbutils secrets or sql_username/sql_password overrides."
+                "Set sql_audit_secret_scope + dbutils secrets or sql_username/sql_password overrides."
             )
 
     return SqlServerDirectConfig(
@@ -84,19 +132,37 @@ def resolve_sql_server_config(
     )
 
 
-def open_sql_server_connection(config: SqlServerDirectConfig) -> Any:
-    if pymssql is None:
-        raise RuntimeError("pymssql is not installed; add pymssql to the recon notebook environment")
-    return pymssql.connect(
-        server=config.host,
-        port=config.port,
-        user=config.username,
-        password=config.password,
-        database=config.database,
-        login_timeout=30,
-        timeout=300,
-        tds_version="7.4",
-    )
+def open_sql_server_connection(config: SqlServerDirectConfig, *, prefer: str = "pyodbc") -> Any:
+    """Open a SQL connection. Prefer pyodbc on Databricks (pymssql can crash the kernel)."""
+    errors: list[str] = []
+    if prefer != "pymssql" and pyodbc is not None:
+        try:
+            conn_str = build_pyodbc_connection_string(config)
+            return pyodbc.connect(conn_str, autocommit=True)
+        except Exception as exc:
+            errors.append(f"pyodbc: {exc}")
+
+    if pymssql is not None:
+        try:
+            return pymssql.connect(
+                server=config.host,
+                port=config.port,
+                user=config.username,
+                password=config.password,
+                database=config.database,
+                login_timeout=30,
+                timeout=300,
+                tds_version="7.4",
+            )
+        except Exception as exc:
+            errors.append(f"pymssql: {exc}")
+
+    if pyodbc is None and pymssql is None:
+        raise RuntimeError(
+            "Neither pyodbc nor pymssql is installed. Attach to cluster ipac_sql_recon_shared "
+            "or run install_sql_recon_dependencies.sh init script."
+        )
+    raise RuntimeError("Failed to connect to SQL Server: " + "; ".join(errors))
 
 
 def fetch_scalar(conn: Any, sql: str, column: str) -> int | None:

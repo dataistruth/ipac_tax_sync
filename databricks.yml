@@ -7,7 +7,7 @@
 #   3. ./ipac-delta-sync validate
 #   4. ./ipac-delta-sync generate
 #   5. First deploy: databricks bundle validate && databricks bundle deploy
-#      (order: generated/config/schema → instance pool → pipelines → jobs)
+#      (order: generated/config/schema → instance pool → sql/recon cluster → pipelines → jobs)
 #   6. Later: databricks bundle deploy --select pipelines.p_<client_nm>_1,...
 #
 # Calc jobs deploy from ipac-sdt-calc (jobs.*) — see docs/migration-from-ipac-core-sdt.md
@@ -24,12 +24,14 @@ sync:
   include:
     - src/common/notebooks/**
     - src/common/ops/**
+    - src/common/cluster/**
     - generated/config/**
 
 include:
-  # Deploy order: UC schemas → instance pool → pipelines → ops jobs
+  # Deploy order: UC schemas → instance pool → clusters → pipelines → ops jobs
   - generated/config/schema/*.yml
   - resources/instance_pools/*.yml
+  - resources/clusters/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
 
@@ -88,6 +90,15 @@ variables:
   pipeline_spark_version:
     default: 15.4.x-scala2.12
     description: Spark runtime for generated Lakeflow pipeline clusters and pool preload
+  sql_recon_node_type_id:
+    default: Standard_D8s_v3
+    description: Shared SQL/recon cluster node type (8 vCPU single-node)
+  sql_recon_spark_version:
+    default: 15.4.x-scala2.12
+    description: Spark runtime for shared SQL Server recon cluster
+  sql_recon_autotermination_minutes:
+    default: 0
+    description: Auto-termination for ipac_sql_recon_shared (0 = disabled for continuous recon job)
 
 targets:
   # Deploy with: databricks bundle deploy -t dev
@@ -117,6 +128,9 @@ targets:
       pipeline_instance_pool_node_type: Standard_D32s_v3
       pipeline_instance_pool_min_idle: 4
       pipeline_instance_pool_max_capacity: 8
+      sql_recon_node_type_id: Standard_D8s_v3
+      sql_recon_spark_version: 15.4.x-scala2.12
+      sql_recon_autotermination_minutes: 0
 
   prod:
     mode: production
@@ -137,4 +151,7 @@ targets:
       pipeline_instance_pool_node_type: Standard_D32s_v3
       pipeline_instance_pool_min_idle: 4
       pipeline_instance_pool_max_capacity: 8
+      sql_recon_node_type_id: Standard_D8s_v3
+      sql_recon_spark_version: 15.4.x-scala2.12
+      sql_recon_autotermination_minutes: 0
 

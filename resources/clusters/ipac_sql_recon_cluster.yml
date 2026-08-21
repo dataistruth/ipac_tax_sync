@@ -1,0 +1,31 @@
+# Shared classic cluster for SQL Server CT probes and ingestion recon notebooks.
+# - 8 vCPU single-node (Standard_D8s_v3)
+# - Init script: msodbcsql18/17 + pyodbc
+# Deploy before jobs: databricks bundle deploy -t dev
+
+resources:
+  clusters:
+    ipac_sql_recon_cluster:
+      cluster_name: ipac_sql_recon_shared
+      spark_version: ${var.sql_recon_spark_version}
+      node_type_id: ${var.sql_recon_node_type_id}
+      num_workers: 0
+      spark_conf:
+        spark.databricks.cluster.profile: singleNode
+        spark.master: local[8]
+      custom_tags:
+        bundle: ${var.job_tag}
+        purpose: sql_recon
+        ResourceClass: SingleNode
+      data_security_mode: USER_ISOLATION
+      runtime_engine: STANDARD
+      autotermination_minutes: ${var.sql_recon_autotermination_minutes}
+      enable_elastic_disk: true
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.grant_group}
+        - level: CAN_ATTACH_TO
+          group_name: ${var.grant_group}
+      init_scripts:
+        - workspace:
+            destination: ${workspace.file_path}/src/common/cluster/init/install_sql_recon_dependencies.sh

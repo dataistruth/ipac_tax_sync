@@ -16,6 +16,7 @@ resources:
         pause_status: UNPAUSED
       tasks:
         - task_key: run_ingestion_recon
+          existing_cluster_id: ${resources.clusters.ipac_sql_recon_cluster.id}
           notebook_task:
             notebook_path: ${workspace.file_path}/src/common/notebooks/run_ingestion_recon.py
             base_parameters:
