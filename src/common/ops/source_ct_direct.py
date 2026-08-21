@@ -121,6 +121,33 @@ def open_sql_server_connection(config: SqlServerDirectConfig) -> Any:
     return conn
 
 
+def cursor_column_names(cursor: Any) -> list[str]:
+    if not cursor.description:
+        return []
+    return [str(col[0]) for col in cursor.description]
+
+
+def row_as_dict(row: Any, column_names: list[str]) -> dict[str, Any]:
+    return {name: row[idx] for idx, name in enumerate(column_names)}
+
+
+def fetch_one_as_dict(conn: Any, sql: str) -> dict[str, Any] | None:
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        cols = cursor_column_names(cur)
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return row_as_dict(row, cols)
+
+
+def fetch_all_as_dict(conn: Any, sql: str) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        cols = cursor_column_names(cur)
+        return [row_as_dict(row, cols) for row in cur.fetchall()]
+
+
 def fetch_scalar(conn: Any, sql: str, column: str) -> int | None:
     with conn.cursor() as cur:
         cur.execute(sql)

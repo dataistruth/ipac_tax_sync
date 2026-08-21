@@ -9,7 +9,9 @@ from typing import Any
 
 from common.ops.source_ct_direct import (
     SqlServerDirectConfig,
+    fetch_all_as_dict,
     fetch_change_tracking_current_version,
+    fetch_one_as_dict,
     open_sql_server_connection,
     resolve_sql_server_config,
 )
@@ -108,9 +110,7 @@ WHERE database_name = '{db}'
   AND schema_name = '{schema}'
   AND table_name = '{table}';
 """.strip()
-    with conn.cursor(as_dict=True) as cur:
-        cur.execute(sql)
-        row = cur.fetchone()
+    row = fetch_one_as_dict(conn, sql)
     if not row:
         return None
     return TableWatermark(
@@ -218,17 +218,15 @@ WHERE ct.SYS_CHANGE_OPERATION IN ('I', 'U', 'D'){upper}
 GROUP BY ct.SYS_CHANGE_OPERATION;
 """.strip()
     counts = CtPendingCounts()
-    with conn.cursor(as_dict=True) as cur:
-        cur.execute(sql)
-        for row in cur.fetchall():
-            op = str(row["op"]).strip().upper()
-            cnt = int(row["cnt"])
-            if op == "I":
-                counts.inserts = cnt
-            elif op == "U":
-                counts.updates = cnt
-            elif op == "D":
-                counts.deletes = cnt
+    for row in fetch_all_as_dict(conn, sql):
+        op = str(row["op"]).strip().upper()
+        cnt = int(row["cnt"])
+        if op == "I":
+            counts.inserts = cnt
+        elif op == "U":
+            counts.updates = cnt
+        elif op == "D":
+            counts.deletes = cnt
     return counts
 
 
