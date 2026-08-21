@@ -29,6 +29,13 @@ dbutils.widgets.text("ct_probe_table_nm", "", "Table to probe (blank = first act
 dbutils.widgets.text("sql_host", "", "SQL host override (blank = client.json sql_host)")
 dbutils.widgets.text("sql_audit_secret_scope", "scope_ipacs_audit", "Databricks secret scope for audit SQL login")
 dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use ipac_metadata.dbo CT watermarks")
+dbutils.widgets.dropdown("simplified_recon", "true", ["true", "false"], "CT-driven simplified recon (recon_ready only)")
+dbutils.widgets.dropdown(
+    "simple_pass_rule",
+    "row_count",
+    ["auto", "flow_complete", "row_count", "ct_metrics"],
+    "Pass rule: SCD1 row_count=fast SQL vs Delta numRecords",
+)
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
@@ -41,6 +48,8 @@ ct_probe_table_nm = dbutils.widgets.get("ct_probe_table_nm").strip()
 sql_host_override = dbutils.widgets.get("sql_host").strip()
 sql_audit_secret_scope = dbutils.widgets.get("sql_audit_secret_scope").strip() or "scope_ipacs_audit"
 use_sql_server_audit = dbutils.widgets.get("use_sql_server_audit").strip().lower() == "true"
+simplified_recon = dbutils.widgets.get("simplified_recon").strip().lower() == "true"
+simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "row_count"
 
 print(f"uc_catalog              : {uc_catalog}")
 print(f"metadata_schema         : {metadata_schema}")
@@ -53,6 +62,8 @@ print(f"ct_probe_table_nm       : {ct_probe_table_nm or '(first active table)'}"
 print(f"sql_host_override       : {sql_host_override or '(from client.json)'}")
 print(f"sql_audit_secret_scope  : {sql_audit_secret_scope}")
 print(f"use_sql_server_audit    : {use_sql_server_audit}")
+print(f"simplified_recon        : {simplified_recon}")
+print(f"simple_pass_rule        : {simple_pass_rule}")
 
 # COMMAND ----------
 
@@ -163,13 +174,18 @@ while True:
         lookback_hours=lookback_hours,
         dbutils=dbutils,
         use_sql_server_audit=use_sql_server_audit,
+        simplified_recon=simplified_recon,
+        simple_pass_rule=simple_pass_rule,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(
         f"poll {iteration} complete in {poll_elapsed_sec:.1f}s: "
         f"pipelines={totals['pipelines']} "
         f"polled={totals['polled']} skipped={totals['skipped']} "
-        f"new_events={totals['new_events']} metrics={totals['metrics']} "
+        f"new_events={totals['new_events']} "
+        f"ct_pending_tables={totals['ct_pending_tables']} "
+        f"waiting_tables={totals['waiting_tables']} "
+        f"metrics={totals['metrics']} "
         f"summaries={totals['summaries']} recon_ready={totals['recon_ready']}"
     )
     print(f"Sleeping {poll_interval_sec}s...")

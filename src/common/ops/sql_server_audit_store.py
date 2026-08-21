@@ -12,6 +12,7 @@ from common.ops.source_ct_direct import (
     fetch_all_as_dict,
     fetch_change_tracking_current_version,
     fetch_one_as_dict,
+    fetch_scalar,
     open_sql_server_connection,
     resolve_sql_server_config,
 )
@@ -48,6 +49,64 @@ class CtPendingCounts:
         if recon_type == 3:
             return self.inserts + self.updates
         return self.total
+
+
+@dataclass(frozen=True)
+class PendingCtTable:
+    schema_name: str
+    table_name: str
+    watermark_before: int
+    ct_head_version: int
+    pending: CtPendingCounts
+
+    @property
+    def version_delta(self) -> int:
+        return self.ct_head_version - self.watermark_before
+
+
+def fetch_sql_row_count(conn: Any, src_schema: str, table_name: str) -> int | None:
+    schema = (src_schema or "dbo").replace("'", "''")
+    table = table_name.replace("'", "''")
+    sql = f"SELECT COUNT_BIG(*) AS cnt FROM {schema}.{table};"
+    return fetch_scalar(conn, sql, "cnt")
+
+
+def discover_pending_ct_tables(
+    conn: Any,
+    client: Any,
+    src_schema: str,
+    table_names: list[str],
+) -> list[PendingCtTable]:
+    """List configured tables with CT activity since stored watermarks (pending I/U/D > 0)."""
+    database_name = client.src_db_nm
+    ct_head = fetch_change_tracking_current_version(conn)
+    if ct_head is None:
+        return []
+
+    pending_tables: list[PendingCtTable] = []
+    for table_nm in table_names:
+        if not table_nm:
+            continue
+        watermark = read_table_watermark(conn, database_name, src_schema, table_nm)
+        watermark_before = watermark.last_version if watermark else 0
+        try:
+            pending = fetch_pending_ct_counts(
+                conn, src_schema, table_nm, watermark_before, ct_head
+            )
+        except Exception:
+            continue
+        if pending.total <= 0:
+            continue
+        pending_tables.append(
+            PendingCtTable(
+                schema_name=src_schema or "dbo",
+                table_name=table_nm,
+                watermark_before=watermark_before,
+                ct_head_version=ct_head,
+                pending=pending,
+            )
+        )
+    return pending_tables
 
 
 def resolve_audit_sql_config(
