@@ -1,4 +1,4 @@
-"""Read/write master.ipac_metadata CT watermarks and recon audit rows via mssql-python."""
+"""Read/write ipac_metadata.dbo CT watermarks and recon audit rows via mssql-python."""
 
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ from common.ops.source_ct_direct import (
 DEFAULT_AUDIT_SECRET_SCOPE = "scope_ipacs_audit"
 DEFAULT_AUDIT_USERNAME_KEY = "SQL_SERVER_AUDIT_USERNAME"
 DEFAULT_AUDIT_PASSWORD_KEY = "SQL_SERVER_AUDIT_PASSWORD"
-METADATA_SCHEMA = "ipac_metadata"
+METADATA_DATABASE = "ipac_metadata"
+METADATA_SCHEMA = "dbo"
+METADATA_TABLE_PREFIX = f"{METADATA_DATABASE}.{METADATA_SCHEMA}"
 
 
 @dataclass(frozen=True)
@@ -101,7 +103,7 @@ def read_table_watermark(
     table = table_name.replace("'", "''")
     sql = f"""
 SELECT database_name, schema_name, table_name, client_nm, pipeline_key, last_version
-FROM master.{METADATA_SCHEMA}.ct_table_watermark
+FROM {METADATA_TABLE_PREFIX}.ct_table_watermark
 WHERE database_name = '{db}'
   AND schema_name = '{schema}'
   AND table_name = '{table}';
@@ -131,7 +133,7 @@ def upsert_db_watermark(
     db = database_name.replace("'", "''")
     client = client_nm.replace("'", "''")
     sql = f"""
-MERGE master.{METADATA_SCHEMA}.ct_db_watermark AS target
+MERGE {METADATA_TABLE_PREFIX}.ct_db_watermark AS target
 USING (SELECT '{db}' AS database_name, {int(last_version)} AS last_version, '{client}' AS client_nm) AS source
 ON target.database_name = source.database_name
 WHEN MATCHED THEN
@@ -164,7 +166,7 @@ def upsert_table_watermark(
     client = client_nm.replace("'", "''")
     pipeline = pipeline_key.replace("'", "''")
     sql = f"""
-MERGE master.{METADATA_SCHEMA}.ct_table_watermark AS target
+MERGE {METADATA_TABLE_PREFIX}.ct_table_watermark AS target
 USING (
     SELECT
         '{db}' AS database_name,
@@ -306,7 +308,7 @@ def insert_recon_run(
     message = run_message.replace("'", "''")
     head_sql = str(int(ct_head_version)) if ct_head_version is not None else "NULL"
     sql = f"""
-INSERT INTO master.{METADATA_SCHEMA}.recon_run (
+INSERT INTO {METADATA_TABLE_PREFIX}.recon_run (
     recon_run_id, client_nm, database_name, pipeline_id, pipeline_key,
     update_id, ct_head_version, run_status, run_message
 )
@@ -331,7 +333,7 @@ def complete_recon_run(
     rid = recon_run_id.replace("'", "''")
     message = run_message.replace("'", "''")
     sql = f"""
-UPDATE master.{METADATA_SCHEMA}.recon_run
+UPDATE {METADATA_TABLE_PREFIX}.recon_run
 SET
     completed_at = SYSUTCDATETIME(),
     run_status = '{run_status.replace("'", "''")}',
@@ -369,7 +371,7 @@ def record_recon_table_result(
     if recon_run_id:
         rid_sql = "'" + recon_run_id.replace("'", "''") + "'"
     sql = f"""
-INSERT INTO master.{METADATA_SCHEMA}.recon_table_result (
+INSERT INTO {METADATA_TABLE_PREFIX}.recon_table_result (
     recon_run_id,
     client_nm,
     database_name,
@@ -434,7 +436,7 @@ def write_audit_log(
 ) -> None:
     payload = json.dumps(detail or {}, default=str).replace("'", "''")
     sql = f"""
-INSERT INTO master.{METADATA_SCHEMA}.ingestion_audit_log (
+INSERT INTO {METADATA_TABLE_PREFIX}.ingestion_audit_log (
     event_type, client_nm, database_name, object_name, pipeline_id, update_id, detail_json
 )
 VALUES (
@@ -463,7 +465,7 @@ def resolve_source_ct_for_recon(
     verbose: bool = False,
 ) -> tuple[int | None, CtPendingCounts | None, int, int]:
     """
-    Read watermark from master.ipac_metadata, count pending CT to current head.
+    Read watermark from ipac_metadata.dbo, count pending CT to current head.
     Returns (source_metric, pending_counts, watermark_before, ct_head).
     """
     watermark = baseline_table_watermark_if_missing(

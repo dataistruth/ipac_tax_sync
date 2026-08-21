@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC Polls hidden `event_log(pipeline_id)` for pipelines with activity,
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
-# MAGIC compares SQL Server Change Tracking (master.ipac_metadata watermarks) for `recon_type` 2/3,
+# MAGIC compares SQL Server Change Tracking (ipac_metadata.dbo watermarks) for `recon_type` 2/3,
 # MAGIC writes `recon_ready` + `process_log` on PASS.
 # MAGIC
 # MAGIC Continuous loop: poll ingestion event log → compare CT watermarks / counts (recon_type 2/3) → write `recon_ready`.
@@ -28,7 +28,7 @@ dbutils.widgets.dropdown("run_ct_probe", "true", ["true", "false"], "Run SQL Ser
 dbutils.widgets.text("ct_probe_table_nm", "", "Table to probe (blank = first active common table)")
 dbutils.widgets.text("sql_host", "", "SQL host override (blank = client.json sql_host)")
 dbutils.widgets.text("sql_audit_secret_scope", "scope_ipacs_audit", "Databricks secret scope for audit SQL login")
-dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use master.ipac_metadata CT watermarks")
+dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use ipac_metadata.dbo CT watermarks")
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"

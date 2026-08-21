@@ -2,20 +2,20 @@
     Views for SSMS monitoring of recon state.
     Prerequisite: 003_recon_audit_tables.sql
 */
-USE master;
+USE ipac_metadata;
 GO
 
-CREATE OR ALTER VIEW ipac_metadata.v_latest_db_watermarks
+CREATE OR ALTER VIEW dbo.v_latest_db_watermarks
 AS
 SELECT
     w.database_name,
     w.client_nm,
     w.last_version,
     w.checked_at
-FROM ipac_metadata.ct_db_watermark AS w;
+FROM dbo.ct_db_watermark AS w;
 GO
 
-CREATE OR ALTER VIEW ipac_metadata.v_latest_table_watermarks
+CREATE OR ALTER VIEW dbo.v_latest_table_watermarks
 AS
 SELECT
     w.database_name,
@@ -25,10 +25,10 @@ SELECT
     w.pipeline_key,
     w.last_version,
     w.updated_at
-FROM ipac_metadata.ct_table_watermark AS w;
+FROM dbo.ct_table_watermark AS w;
 GO
 
-CREATE OR ALTER VIEW ipac_metadata.v_latest_recon_table_result
+CREATE OR ALTER VIEW dbo.v_latest_recon_table_result
 AS
 WITH ranked AS (
     SELECT
@@ -37,7 +37,7 @@ WITH ranked AS (
             PARTITION BY r.database_name, r.schema_name, r.table_name
             ORDER BY r.recorded_at DESC
         ) AS rn
-    FROM ipac_metadata.recon_table_result AS r
+    FROM dbo.recon_table_result AS r
 )
 SELECT
     result_id,
@@ -67,5 +67,5 @@ FROM ranked
 WHERE rn = 1;
 GO
 
-PRINT 'Views ipac_metadata.v_latest_* created.';
+PRINT 'Views ipac_metadata.dbo.v_latest_* created.';
 GO

@@ -242,7 +242,7 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 Job `j_ipac_delta_sync_ingestion_recon_monitor` runs on **`ipac_sql_recon_shared`** (8 vCPU single-node). The notebook installs **`mssql-python`** via `%pip`.
 
-Continuous loop in `run_ingestion_recon.py`: poll ingestion event log → read CT watermarks from SQL Server (`master.ipac_metadata`) → run CT counts for `recon_type` 2/3 → write `recon_ready` + `process_log`.
+Continuous loop in `run_ingestion_recon.py`: poll ingestion event log → read CT watermarks from SQL Server (`ipac_metadata.dbo`) → run CT counts for `recon_type` 2/3 → write `recon_ready` + `process_log`.
 
 ```bash
 databricks bundle deploy -t dev --select resources.clusters.ipac_sql_recon_cluster,resources.jobs.ingestion_recon_monitor

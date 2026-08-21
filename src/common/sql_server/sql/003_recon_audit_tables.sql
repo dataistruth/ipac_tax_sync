@@ -1,13 +1,13 @@
 /*
-    Recon + audit tables — master.ipac_metadata
+    Recon + audit tables — ipac_metadata.dbo
     Prerequisite: 002_watermark_tables.sql
 */
-USE master;
+USE ipac_metadata;
 GO
 
-IF OBJECT_ID(N'ipac_metadata.recon_run', N'U') IS NULL
+IF OBJECT_ID(N'dbo.recon_run', N'U') IS NULL
 BEGIN
-    CREATE TABLE ipac_metadata.recon_run (
+    CREATE TABLE dbo.recon_run (
         recon_run_id    uniqueidentifier NOT NULL CONSTRAINT DF_recon_run_id DEFAULT NEWSEQUENTIALID(),
         client_nm       sysname          NOT NULL,
         database_name   sysname          NOT NULL,
@@ -23,13 +23,13 @@ BEGIN
     );
 
     CREATE INDEX IX_recon_run_client_update
-        ON ipac_metadata.recon_run (client_nm, update_id, started_at DESC);
+        ON dbo.recon_run (client_nm, update_id, started_at DESC);
 END;
 GO
 
-IF OBJECT_ID(N'ipac_metadata.recon_table_result', N'U') IS NULL
+IF OBJECT_ID(N'dbo.recon_table_result', N'U') IS NULL
 BEGIN
-    CREATE TABLE ipac_metadata.recon_table_result (
+    CREATE TABLE dbo.recon_table_result (
         result_id           bigint           NOT NULL IDENTITY(1,1),
         recon_run_id        uniqueidentifier NULL,
         client_nm           sysname          NOT NULL,
@@ -57,16 +57,16 @@ BEGIN
     );
 
     CREATE INDEX IX_recon_table_result_lookup
-        ON ipac_metadata.recon_table_result (database_name, schema_name, table_name, recorded_at DESC);
+        ON dbo.recon_table_result (database_name, schema_name, table_name, recorded_at DESC);
 
     CREATE INDEX IX_recon_table_result_update
-        ON ipac_metadata.recon_table_result (pipeline_id, update_id, table_name);
+        ON dbo.recon_table_result (pipeline_id, update_id, table_name);
 END;
 GO
 
-IF OBJECT_ID(N'ipac_metadata.ingestion_audit_log', N'U') IS NULL
+IF OBJECT_ID(N'dbo.ingestion_audit_log', N'U') IS NULL
 BEGIN
-    CREATE TABLE ipac_metadata.ingestion_audit_log (
+    CREATE TABLE dbo.ingestion_audit_log (
         audit_id        bigint           NOT NULL IDENTITY(1,1),
         event_type      varchar(40)      NOT NULL,
         client_nm       sysname          NULL,
@@ -80,9 +80,9 @@ BEGIN
     );
 
     CREATE INDEX IX_ingestion_audit_log_type_time
-        ON ipac_metadata.ingestion_audit_log (event_type, recorded_at DESC);
+        ON dbo.ingestion_audit_log (event_type, recorded_at DESC);
 END;
 GO
 
-PRINT 'Recon and audit tables created.';
+PRINT 'Recon and audit tables created in ipac_metadata.dbo.';
 GO

@@ -1,14 +1,12 @@
 /*
-    Grants for ipac_metadata + Change Tracking read (recon audit).
+    Grants for ipac_metadata.dbo + Change Tracking read on client DBs.
 
     Prerequisite: 003_recon_audit_tables.sql
 
     Use your EXISTING admin SQL login — no new login required.
-    If that login is already db_owner on master and client DBs, you can skip this script.
-
     Edit @AuditLogin below (same value in both sections).
 */
-USE master;
+USE ipac_metadata;
 GO
 
 DECLARE @AuditLogin sysname = N'YOUR_ADMIN_SQL_LOGIN';  -- e.g. your Databricks SQL admin user
@@ -21,8 +19,10 @@ END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = @AuditLogin)
 BEGIN
-    RAISERROR('User [%s] not mapped in master. Run: CREATE USER [name] FOR LOGIN [name];', 16, 1, @AuditLogin);
-    RETURN;
+    DECLARE @createUserSql nvarchar(max) =
+        N'CREATE USER ' + QUOTENAME(@AuditLogin) + N' FOR LOGIN ' + QUOTENAME(@AuditLogin) + N';';
+    EXEC sys.sp_executesql @createUserSql;
+    PRINT 'Created user in ipac_metadata for login ' + @AuditLogin;
 END;
 
 IF IS_MEMBER('db_owner') = 1 OR EXISTS (
@@ -33,14 +33,15 @@ IF IS_MEMBER('db_owner') = 1 OR EXISTS (
     WHERE r.name = N'db_owner' AND m.name = @AuditLogin
 )
 BEGIN
-    PRINT 'User already db_owner in master — ipac_metadata grants optional.';
+    PRINT 'User already db_owner in ipac_metadata — dbo grants optional.';
+END
+ELSE
+BEGIN
+    DECLARE @sql nvarchar(max) =
+        N'GRANT SELECT, INSERT, UPDATE ON SCHEMA::dbo TO ' + QUOTENAME(@AuditLogin) + N';';
+    EXEC sys.sp_executesql @sql;
+    PRINT 'Granted dbo on ipac_metadata to ' + @AuditLogin;
 END;
-
-DECLARE @sql nvarchar(max) =
-    N'GRANT SELECT, INSERT, UPDATE ON SCHEMA::ipac_metadata TO ' + QUOTENAME(@AuditLogin) + N';';
-EXEC sys.sp_executesql @sql;
-
-PRINT 'Granted ipac_metadata on master to ' + @AuditLogin;
 GO
 
 /*

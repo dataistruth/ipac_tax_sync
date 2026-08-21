@@ -37,17 +37,18 @@ ipac-sdt-calc reads recon_ready / process_log
 
 **Separate from heartbeat:** `j_ipac_delta_sync_pipeline_heartbeat_monitor` checks pipeline health (RUNNING, stale heartbeat). Recon checks **per-table flow completion and row metrics**.
 
-## SQL Server `master.ipac_metadata` (CT watermarks + audit)
+## SQL Server `ipac_metadata` database (CT watermarks + audit)
 
-Low-latency CT state lives on **SQL Server** (not Delta). Databricks recon uses **`mssql-python`** (`%pip install` in notebook) + secret scope `scope_ipacs_audit`.
+Low-latency CT state lives in the dedicated **`ipac_metadata`** database on SQL Server (`dbo` schema), not in `master`. Databricks recon uses **`mssql-python`** (`%pip install` in notebook) + secret scope `scope_ipacs_audit`.
 
 ### Setup (SSMS + Databricks CLI)
 
-1. Run SQL scripts in order from `src/common/sql_server/sql/` (connected to `master`):
-   - `001_create_schema.sql`
+1. Run SQL scripts in order from `src/common/sql_server/sql/`:
+   - `001_create_schema.sql` — creates database `ipac_metadata`
    - `002_watermark_tables.sql`
    - `003_recon_audit_tables.sql`
-   - `004_grants.sql` (replace `YOUR_AUDIT_SQL_LOGIN`)
+   - `004_grants.sql` (replace `YOUR_ADMIN_SQL_LOGIN`)
+   - Optional: `007_migrate_from_master.sql` if you used `master.ipac_metadata` before
    - Optional: `005_poll_changed_tables.sql`, `006_recon_views.sql`
 
 2. Create Databricks secrets:
@@ -66,11 +67,11 @@ Or: `./src/common/sql_server/setup_audit_secrets.sh --profile <profile>`
 
 | Table | Purpose |
 |-------|---------|
-| `ipac_metadata.ct_db_watermark` | DB-level CT head snapshot |
-| `ipac_metadata.ct_table_watermark` | Per-table last reconciled CT version |
-| `ipac_metadata.recon_run` | One row per pipeline recon batch |
-| `ipac_metadata.recon_table_result` | CT pending I/U/D vs ingestion metrics |
-| `ipac_metadata.ingestion_audit_log` | General audit events |
+| `ipac_metadata.dbo.ct_db_watermark` | DB-level CT head snapshot |
+| `ipac_metadata.dbo.ct_table_watermark` | Per-table last reconciled CT version |
+| `ipac_metadata.dbo.recon_run` | One row per pipeline recon batch |
+| `ipac_metadata.dbo.recon_table_result` | CT pending I/U/D vs ingestion metrics |
+| `ipac_metadata.dbo.ingestion_audit_log` | General audit events |
 
 On **PASS**, recon advances `ct_table_watermark` to `CHANGE_TRACKING_CURRENT_VERSION()`.
 

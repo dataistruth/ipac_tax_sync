@@ -1,10 +1,10 @@
 /*
     Poll all CT-enabled tables in one database and list tables with changes
-    since the stored watermark in master.ipac_metadata.
+    since the stored watermark in ipac_metadata.dbo.
 
     Edit @TargetDatabase before running.
 */
-USE master;
+USE ipac_metadata;
 GO
 
 DECLARE @TargetDatabase sysname = N'iPC_2025_DEV7_15447';
@@ -13,12 +13,12 @@ DECLARE @since bigint;
 DECLARE @until bigint;
 
 SELECT @since = last_version
-FROM ipac_metadata.ct_db_watermark
+FROM dbo.ct_db_watermark
 WHERE database_name = @TargetDatabase;
 
 IF @since IS NULL
 BEGIN
-    RAISERROR('No DB watermark for [%s]. Insert a baseline row in ipac_metadata.ct_db_watermark first.', 16, 1, @TargetDatabase);
+    RAISERROR('No DB watermark for [%s]. Insert a baseline row in ipac_metadata.dbo.ct_db_watermark first.', 16, 1, @TargetDatabase);
     RETURN;
 END;
 

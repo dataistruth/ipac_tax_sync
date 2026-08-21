@@ -1,15 +1,17 @@
 /*
-    ipac_metadata — control schema on SQL Server master database.
-    Run in SSMS connected to master.
-*/
-USE master;
-GO
+    ipac_metadata — dedicated database for CT watermarks and recon audit.
+    Run in SSMS (any database context). Do not store app tables in master.
 
-IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'ipac_metadata')
+    Prerequisite: none
+*/
+IF DB_ID(N'ipac_metadata') IS NULL
 BEGIN
-    EXEC(N'CREATE SCHEMA ipac_metadata AUTHORIZATION dbo;');
+    CREATE DATABASE ipac_metadata;
 END;
 GO
 
-PRINT 'Schema master.ipac_metadata is ready.';
+USE ipac_metadata;
+GO
+
+PRINT 'Database ipac_metadata is ready (default schema dbo).';
 GO

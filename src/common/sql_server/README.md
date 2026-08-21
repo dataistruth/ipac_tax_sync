@@ -1,18 +1,18 @@
-# SQL Server `ipac_metadata` (master)
+# SQL Server `ipac_metadata` database
 
-Low-latency CT watermarks and recon audit state live on the SQL Server instance in
-`master.ipac_metadata`, separate from Unity Catalog Delta tables.
+Low-latency CT watermarks and recon audit state live in the dedicated **`ipac_metadata`** database (`dbo` schema), separate from Unity Catalog Delta tables and from the SQL Server `master` system database.
 
 ## Run order (SSMS)
 
-Execute against the **SQL Server instance** (connect to `master`):
+Execute against the **SQL Server instance** (any database context):
 
-1. `sql/001_create_schema.sql`
+1. `sql/001_create_schema.sql` — creates database `ipac_metadata`
 2. `sql/002_watermark_tables.sql`
 3. `sql/003_recon_audit_tables.sql`
-4. `sql/004_grants.sql` — set `@AuditLogin` to your **existing admin SQL user** (skip if already `db_owner` on master + client DBs)
-5. Optional: `sql/005_poll_changed_tables.sql` — ad-hoc poll for one client database
-6. Optional: `sql/006_recon_views.sql`
+4. `sql/004_grants.sql` — set `@AuditLogin` to your **existing admin SQL user**
+5. Optional: `sql/007_migrate_from_master.sql` — if you previously used `master.ipac_metadata`
+6. Optional: `sql/005_poll_changed_tables.sql` — ad-hoc poll for one client database
+7. Optional: `sql/006_recon_views.sql`
 
 ## Databricks secret scope
 
@@ -36,10 +36,11 @@ See `config/common/secrets/databricks_secrets_commands.txt` for raw CLI commands
 ## Python wiring
 
 - `common.ops.sql_server_audit_store` — read/write watermarks and recon rows via **mssql-python**
+- Connects to each **client CDC database** for Change Tracking; uses three-part names `ipac_metadata.dbo.*` for metadata tables
 - `common.ops.ingestion_recon_ops` — uses SQL Server CT watermarks for `recon_type` 2/3
 - `config/common/client.json` — set `sql_host` per client; defaults use `scope_ipacs_audit`
 
-## Tables
+## Tables (`ipac_metadata.dbo`)
 
 | Table | Purpose |
 |-------|---------|

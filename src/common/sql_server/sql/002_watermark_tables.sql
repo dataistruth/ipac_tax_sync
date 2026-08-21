@@ -1,13 +1,13 @@
 /*
-    CT watermark tables — master.ipac_metadata
+    CT watermark tables — ipac_metadata.dbo
     Prerequisite: 001_create_schema.sql
 */
-USE master;
+USE ipac_metadata;
 GO
 
-IF OBJECT_ID(N'ipac_metadata.ct_db_watermark', N'U') IS NULL
+IF OBJECT_ID(N'dbo.ct_db_watermark', N'U') IS NULL
 BEGIN
-    CREATE TABLE ipac_metadata.ct_db_watermark (
+    CREATE TABLE dbo.ct_db_watermark (
         database_name   sysname       NOT NULL,
         client_nm       sysname       NULL,
         last_version    bigint        NOT NULL,
@@ -17,9 +17,9 @@ BEGIN
 END;
 GO
 
-IF OBJECT_ID(N'ipac_metadata.ct_table_watermark', N'U') IS NULL
+IF OBJECT_ID(N'dbo.ct_table_watermark', N'U') IS NULL
 BEGIN
-    CREATE TABLE ipac_metadata.ct_table_watermark (
+    CREATE TABLE dbo.ct_table_watermark (
         database_name   sysname       NOT NULL,
         schema_name     sysname       NOT NULL,
         table_name      sysname       NOT NULL,
@@ -32,5 +32,5 @@ BEGIN
 END;
 GO
 
-PRINT 'Watermark tables created.';
+PRINT 'Watermark tables created in ipac_metadata.dbo.';
 GO

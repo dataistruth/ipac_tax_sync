@@ -61,4 +61,4 @@ def test_upsert_table_watermark_executes_merge():
     )
     assert conn.commits == 1
     assert conn.last_cursor is not None
-    assert "MERGE master.ipac_metadata.ct_table_watermark" in conn.last_cursor.executed[0]
+    assert "MERGE ipac_metadata.dbo.ct_table_watermark" in conn.last_cursor.executed[0]
