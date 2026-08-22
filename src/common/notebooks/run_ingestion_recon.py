@@ -32,15 +32,20 @@ dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use
 dbutils.widgets.dropdown("simplified_recon", "true", ["true", "false"], "CT-driven simplified recon (recon_ready only)")
 dbutils.widgets.dropdown(
     "simple_pass_rule",
-    "row_count",
-    ["auto", "flow_complete", "row_count", "ct_metrics"],
-    "Pass rule: SCD1 row_count=SQL vs Delta COUNT_BIG",
+    "ingest_quiesce",
+    ["auto", "flow_complete", "row_count", "ct_metrics", "ingest_quiesce", "table_after_ct"],
+    "Pass rule: ingest_quiesce=flow+table; table_after_ct=delta refresh after SQL CT only",
 )
 dbutils.widgets.dropdown(
     "row_count_only_on_flow_complete",
     "true",
     ["true", "false"],
     "Defer COUNT_BIG until flow_progress COMPLETED",
+)
+dbutils.widgets.text(
+    "table_quiesce_sec",
+    "15",
+    "Seconds after CT watermark updated_at before table refresh gate",
 )
 dbutils.widgets.dropdown(
     "use_api_update_complete",
@@ -61,13 +66,14 @@ sql_host_override = dbutils.widgets.get("sql_host").strip()
 sql_audit_secret_scope = dbutils.widgets.get("sql_audit_secret_scope").strip() or "scope_ipacs_audit"
 use_sql_server_audit = dbutils.widgets.get("use_sql_server_audit").strip().lower() == "true"
 simplified_recon = dbutils.widgets.get("simplified_recon").strip().lower() == "true"
-simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "row_count"
+simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "ingest_quiesce"
 row_count_only_on_flow_complete = (
     dbutils.widgets.get("row_count_only_on_flow_complete").strip().lower() == "true"
 )
 use_api_update_complete = (
     dbutils.widgets.get("use_api_update_complete").strip().lower() == "true"
 )
+table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "15")
 
 print(f"uc_catalog              : {uc_catalog}")
 print(f"metadata_schema         : {metadata_schema}")
@@ -84,6 +90,7 @@ print(f"simplified_recon        : {simplified_recon}")
 print(f"simple_pass_rule        : {simple_pass_rule}")
 print(f"row_count_only_on_flow_complete : {row_count_only_on_flow_complete}")
 print(f"use_api_update_complete       : {use_api_update_complete}")
+print(f"table_quiesce_sec             : {table_quiesce_sec}")
 
 # COMMAND ----------
 
@@ -198,6 +205,7 @@ while True:
         simple_pass_rule=simple_pass_rule,
         row_count_only_on_flow_complete=row_count_only_on_flow_complete,
         use_api_update_complete=use_api_update_complete,
+        table_quiesce_sec=table_quiesce_sec,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(

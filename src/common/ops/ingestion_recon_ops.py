@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from common.ops.pipeline_names import load_pipeline_names, normalize_pipeline_key
@@ -262,6 +263,160 @@ def _destination_schema_for_table(ctx: Any, table_nm: str) -> str:
     return ""
 
 
+def _ensure_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _parse_refresh_timestamp(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return _ensure_utc(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return _ensure_utc(datetime.fromisoformat(text.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def fetch_streaming_table_refresh_info(
+    spark,
+    catalog: str,
+    schema: str,
+    table_nm: str,
+) -> dict[str, Any] | None:
+    """
+    Per-table refresh metadata for UC streaming / materialized views.
+
+    Prefers refresh_information from DESCRIBE TABLE EXTENDED AS JSON (DBR 17.3+),
+    then Last Modified from DESCRIBE TABLE EXTENDED.
+    """
+    ref = resolve_uc_table_ref(spark, catalog, schema, table_nm)
+    if ref is None:
+        return None
+
+    try:
+        json_row = spark.sql(f"DESCRIBE TABLE EXTENDED {ref.quoted_name} AS JSON").collect()[0]
+        json_text = json_row[0]
+        data = json.loads(json_text) if isinstance(json_text, str) else {}
+        refresh = data.get("refresh_information") or {}
+        last_at = _parse_refresh_timestamp(refresh.get("last_refreshed_at"))
+        if last_at is not None:
+            return {
+                "table": ref.name,
+                "last_refreshed_at": last_at,
+                "latest_refresh_status": str(refresh.get("latest_refresh_status") or ""),
+                "last_refresh_type": str(refresh.get("last_refresh_type") or ""),
+                "source": "refresh_information",
+            }
+    except Exception:
+        pass
+
+    try:
+        for row in spark.sql(f"DESCRIBE TABLE EXTENDED {ref.quoted_name}").collect():
+            col_name = str(row.col_name).strip()
+            if col_name in ("Last Modified", "last_modified", "last_refreshed_at"):
+                last_at = _parse_refresh_timestamp(row.data_type)
+                if last_at is not None:
+                    return {
+                        "table": ref.name,
+                        "last_refreshed_at": last_at,
+                        "latest_refresh_status": "",
+                        "last_refresh_type": col_name,
+                        "source": "describe_extended",
+                    }
+    except Exception as exc:
+        print(f"[recon] WARN table refresh metadata failed for {ref.name}: {exc}")
+    return None
+
+
+def _flow_metrics_positive(metrics: list[FlowMetricsRow]) -> tuple[bool, int, int, int]:
+    if not metrics:
+        return False, 0, 0, 0
+    upserted = sum(m.rows_upserted or 0 for m in metrics)
+    deleted = sum(m.rows_deleted or 0 for m in metrics)
+    output = sum(m.output_rows or 0 for m in metrics)
+    changed = upserted + deleted
+    return changed > 0 or output > 0, upserted, deleted, output
+
+
+def evaluate_table_refresh_after_sql_ct(
+    table_refresh: dict[str, Any] | None,
+    sql_ct_reference_at: datetime | None,
+    quiesce_sec: int = 15,
+) -> tuple[str, str]:
+    """
+    Per-table gate: UC streaming target refreshed after SQL CT reference time + quiesce.
+    """
+    if sql_ct_reference_at is None:
+        return "WAITING", "SQL CT reference timestamp unavailable"
+
+    if table_refresh is None or table_refresh.get("last_refreshed_at") is None:
+        return "WAITING", "no streaming table refresh metadata (last_refreshed_at)"
+
+    refresh_dt = _ensure_utc(table_refresh["last_refreshed_at"])
+    ref_dt = _ensure_utc(sql_ct_reference_at)
+    deadline = ref_dt + timedelta(seconds=max(0, int(quiesce_sec)))
+
+    if refresh_dt < deadline:
+        return (
+            "WAITING",
+            f"delta last_refreshed_at={refresh_dt.isoformat()} before "
+            f"sql_ct_reference+{quiesce_sec}s ({deadline.isoformat()})",
+        )
+
+    table_name = str(table_refresh.get("table") or "")
+    refresh_status = str(table_refresh.get("latest_refresh_status") or "")
+    return (
+        "PASS",
+        (
+            f"delta refreshed after SQL CT: table={table_name} "
+            f"last_refreshed_at={refresh_dt.isoformat()} "
+            f"sql_ct_reference={ref_dt.isoformat()} "
+            f"refresh_status={refresh_status or 'n/a'}"
+        ),
+    )
+
+
+def evaluate_ingest_quiesce_recon(
+    metrics: list[FlowMetricsRow],
+    pending: CtPendingCounts,
+    recon_type: int,
+    table_refresh: dict[str, Any] | None,
+    sql_ct_reference_at: datetime | None,
+    quiesce_sec: int = 15,
+) -> tuple[str, str]:
+    """
+    PASS when flow_progress metrics are positive and the UC streaming target was
+    refreshed after the SQL CT reference timestamp (+ quiesce buffer).
+    """
+    positive, upserted, deleted, output = _flow_metrics_positive(metrics)
+    if not positive:
+        return "WAITING", "no positive flow_progress metrics for table"
+
+    status, message = evaluate_table_refresh_after_sql_ct(
+        table_refresh, sql_ct_reference_at, quiesce_sec=quiesce_sec
+    )
+    if status != "PASS":
+        return status, message
+
+    source_metric = pending.metric_for_recon_type(recon_type)
+    refresh_dt = _ensure_utc(table_refresh["last_refreshed_at"])
+    ref_dt = _ensure_utc(sql_ct_reference_at)
+    return (
+        "PASS",
+        (
+            f"ingest_quiesce: flow upserted={upserted} deleted={deleted} output={output}, "
+            f"CT pending={source_metric}, sql_ct_reference={ref_dt.isoformat()}, "
+            f"delta last_refreshed_at={refresh_dt.isoformat()}"
+        ),
+    )
+
+
 def evaluate_simple_recon(
     summary: FlowSummaryRow | None,
     pending: CtPendingCounts,
@@ -338,6 +493,7 @@ def run_simplified_pipeline_recon(
     use_api_update_complete: bool = True,
     event_log_watermark: ReconEventLogWatermark | None = None,
     ct_head_cache: dict[str, int] | None = None,
+    table_quiesce_sec: int = 15,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -358,7 +514,8 @@ def run_simplified_pipeline_recon(
         f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
         f"active_tables={len(active_tables)} pass_rule={pass_rule} "
         f"row_count_only_on_flow_complete={row_count_only_on_flow_complete} "
-        f"use_api_update_complete={use_api_update_complete}"
+        f"use_api_update_complete={use_api_update_complete} "
+        f"table_quiesce_sec={table_quiesce_sec}"
     )
     if pipeline_detail:
         print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(pipeline_detail)}")
@@ -417,6 +574,8 @@ def run_simplified_pipeline_recon(
 
     ready_written = 0
     waiting_count = 0
+    delta_after_ct_pass = 0
+    delta_after_ct_wait = 0
     run_id = recon_run_id
     if run_id is None:
         sample_update = str(pipeline_rows[0].get("update_id") or "") if pipeline_rows else ""
@@ -441,7 +600,9 @@ def run_simplified_pipeline_recon(
             f"[recon] {ctx.pipeline_key} table={table_nm} "
             f"ct_versions={probe.watermark_before}..{probe.ct_head_version} "
             f"pending I/U/D={probe.pending.inserts}/{probe.pending.updates}/{probe.pending.deletes} "
-            f"recon_type={recon_type}"
+            f"recon_type={recon_type} "
+            f"watermark_updated_at={probe.watermark_updated_at or 'n/a'} "
+            f"sql_ct_reference_at={probe.sql_ct_reference_at or 'n/a'}"
         )
 
         metrics = _flow_metrics_for_table(pipeline_rows, ctx, table_nm)
@@ -464,7 +625,42 @@ def run_simplified_pipeline_recon(
         sql_count: int | None = None
         delta_count: int | None = None
 
-        if pass_rule in ("auto", "flow_complete") and flow_complete:
+        sql_ct_ref = probe.sql_ct_reference_at or probe.watermark_updated_at
+
+        if pass_rule in ("ingest_quiesce", "table_after_ct"):
+            table_refresh = (
+                fetch_streaming_table_refresh_info(spark, catalog, dest_schema, table_nm)
+                if dest_schema
+                else None
+            )
+            if table_refresh:
+                print(
+                    f"[recon] {ctx.pipeline_key} {table_nm}: delta refresh "
+                    f"last_refreshed_at={table_refresh.get('last_refreshed_at')} "
+                    f"status={table_refresh.get('latest_refresh_status') or 'n/a'}"
+                )
+            else:
+                print(
+                    f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
+                    "no delta table refresh metadata"
+                )
+
+        if pass_rule == "ingest_quiesce":
+            status, message = evaluate_ingest_quiesce_recon(
+                metrics,
+                probe.pending,
+                recon_type,
+                table_refresh,
+                sql_ct_ref,
+                quiesce_sec=table_quiesce_sec,
+            )
+        elif pass_rule == "table_after_ct":
+            status, message = evaluate_table_refresh_after_sql_ct(
+                table_refresh,
+                sql_ct_ref,
+                quiesce_sec=table_quiesce_sec,
+            )
+        elif pass_rule in ("auto", "flow_complete") and flow_complete:
             if summary is not None and summary.final_flow_status == "COMPLETED":
                 status, message = "PASS", "flow_progress COMPLETED in event log"
             elif api_update_complete:
@@ -529,11 +725,19 @@ def run_simplified_pipeline_recon(
             )
         print(f"[recon] {ctx.pipeline_key} {table_nm}: {status} — {message}")
 
+        if pass_rule in ("ingest_quiesce", "table_after_ct"):
+            if status == "PASS":
+                delta_after_ct_pass += 1
+            elif status == "WAITING":
+                delta_after_ct_wait += 1
+
         if status == "WAITING":
             waiting_count += 1
             continue
 
-        update_id = summary.update_id if summary else api_snap.get("update_id", "")
+        update_id = summary.update_id if summary else (
+            metrics[-1].update_id if metrics else api_snap.get("update_id", "")
+        )
         flow_name = summary.flow_name if summary else _default_flow_name_for_table(table_nm, src_schema)
         pipeline_id = ctx.pipeline_id or (summary.pipeline_id if summary else "")
 
@@ -544,7 +748,9 @@ def run_simplified_pipeline_recon(
                 print(f"[recon] {ctx.pipeline_key} {table_nm}: SKIP already in recon_ready")
                 continue
 
-        ingest_change = summary.total_change_rows if summary else 0
+        ingest_change = summary.total_change_rows if summary else (
+            sum(m.rows_upserted or 0 for m in metrics) + sum(m.rows_deleted or 0 for m in metrics)
+        )
         source_metric = probe.pending.metric_for_recon_type(recon_type)
         try:
             record_recon_table_result(
@@ -600,6 +806,14 @@ def run_simplified_pipeline_recon(
                 conn, client.src_db_nm, probe.ct_head_version, client_nm=client.client_nm
             )
             print(f"[recon] PASS {ctx.pipeline_key} {table_nm} → recon_ready written")
+
+    if pass_rule in ("ingest_quiesce", "table_after_ct") and pending_tables:
+        print(
+            f"[recon] {ctx.pipeline_key}: per-table delta vs SQL CT — "
+            f"checked={len(pending_tables)} "
+            f"delta_after_ct_pass={delta_after_ct_pass} "
+            f"delta_after_ct_wait={delta_after_ct_wait}"
+        )
 
     if run_id:
         try:
@@ -949,6 +1163,7 @@ def run_all_pipeline_recon(
     simple_pass_rule: str = "auto",
     row_count_only_on_flow_complete: bool = True,
     use_api_update_complete: bool = True,
+    table_quiesce_sec: int = 15,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     if simplified_recon and not use_sql_server_audit:
@@ -1105,6 +1320,7 @@ def run_all_pipeline_recon(
                 use_api_update_complete=use_api_update_complete,
                 event_log_watermark=watermark,
                 ct_head_cache=ct_head_cache,
+                table_quiesce_sec=table_quiesce_sec,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n

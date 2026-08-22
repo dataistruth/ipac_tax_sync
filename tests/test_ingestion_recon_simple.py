@@ -2,11 +2,17 @@
 
 from unittest.mock import MagicMock
 
-from common.ops.ingestion_recon_ops import count_delta_table_rows, evaluate_simple_recon
+from common.ops.ingestion_recon_ops import (
+    count_delta_table_rows,
+    evaluate_ingest_quiesce_recon,
+    evaluate_simple_recon,
+    evaluate_table_refresh_after_sql_ct,
+)
 from common.ops.lakeflow_event_ops import FlowSummaryRow
+from common.ops.recon_store import FlowMetricsRow
 from common.ops.recon_store import resolve_uc_table_ref, UcTableRef, is_streaming_uc_table
 from common.ops.sql_server_audit_store import CtPendingCounts
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def _summary(upserted: int = 1, deleted: int = 0) -> FlowSummaryRow:
@@ -30,6 +36,75 @@ def _summary(upserted: int = 1, deleted: int = 0) -> FlowSummaryRow:
         first_event_time=now,
         last_event_time=now,
     )
+
+
+def test_evaluate_table_refresh_after_sql_ct_pass():
+    now = datetime.now(timezone.utc)
+    refresh = {
+        "table": "dev7.schema.Table",
+        "last_refreshed_at": now,
+        "latest_refresh_status": "SUCCESS",
+    }
+    status, msg = evaluate_table_refresh_after_sql_ct(
+        refresh,
+        now - timedelta(seconds=60),
+        quiesce_sec=15,
+    )
+    assert status == "PASS"
+    assert "delta refreshed after SQL CT" in msg
+
+
+def test_evaluate_ingest_quiesce_pass():
+    now = datetime.now(timezone.utc)
+    metrics = [
+        FlowMetricsRow(
+            event_id="e1",
+            pipeline_id="pid",
+            pipeline_name="p",
+            update_id="upd",
+            flow_name="dbo.Table_snapshot_flow",
+            table_name="Table",
+            event_timestamp=now,
+            flow_status="RUNNING",
+            output_rows=100,
+            rows_upserted=100,
+            rows_deleted=0,
+            output_bytes=0,
+            client_nm="c",
+            destination_schema="s",
+            destination_table="Table",
+        )
+    ]
+    table_refresh = {
+        "table": "dev7.schema.K1Input_Snapshot",
+        "last_refreshed_at": now,
+        "latest_refresh_status": "SUCCESS",
+        "last_refresh_type": "FULL",
+        "source": "refresh_information",
+    }
+    status, msg = evaluate_ingest_quiesce_recon(
+        metrics,
+        CtPendingCounts(inserts=100),
+        recon_type=1,
+        table_refresh,
+        now - timedelta(seconds=60),
+        quiesce_sec=15,
+    )
+    assert status == "PASS"
+    assert "ingest_quiesce" in msg
+
+
+def test_evaluate_ingest_quiesce_waiting_no_metrics():
+    now = datetime.now(timezone.utc)
+    status, msg = evaluate_ingest_quiesce_recon(
+        [],
+        CtPendingCounts(inserts=5),
+        recon_type=1,
+        {"last_refreshed_at": now, "table": "t"},
+        now - timedelta(seconds=60),
+    )
+    assert status == "WAITING"
+    assert "flow_progress" in msg
 
 
 def test_evaluate_simple_flow_complete():

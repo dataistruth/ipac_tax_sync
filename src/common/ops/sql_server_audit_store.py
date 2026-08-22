@@ -36,6 +36,7 @@ class TableWatermark:
     last_version: int
     client_nm: str = ""
     pipeline_key: str = ""
+    updated_at: datetime | None = None
 
 
 @dataclass
@@ -61,6 +62,8 @@ class PendingCtTable:
     watermark_before: int
     ct_head_version: int
     pending: CtPendingCounts
+    watermark_updated_at: datetime | None = None
+    sql_ct_reference_at: datetime | None = None
 
     @property
     def version_delta(self) -> int:
@@ -72,6 +75,54 @@ def fetch_sql_row_count(conn: Any, src_schema: str, table_name: str) -> int | No
     table = table_name.replace("'", "''")
     sql = f"SELECT COUNT_BIG(*) AS cnt FROM {schema}.{table};"
     return fetch_scalar(conn, sql, "cnt")
+
+
+def fetch_latest_pending_ct_commit_time(
+    conn: Any,
+    src_schema: str,
+    table_name: str,
+    watermark_before: int,
+    ct_head_version: int | None = None,
+) -> datetime | None:
+    """Latest SQL commit time for CT changes since watermark_before."""
+    schema = (src_schema or "dbo").replace("'", "''")
+    table = table_name.replace("'", "''")
+    upper = (
+        f"AND chg.SYS_CHANGE_VERSION <= {int(ct_head_version)}"
+        if ct_head_version is not None
+        else ""
+    )
+    sql = f"""
+SELECT MAX(t.commit_time) AS latest_ct_commit_at
+FROM CHANGETABLE(CHANGES {schema}.{table}, {int(watermark_before)}) AS chg
+INNER JOIN sys.dm_tran_commit_table AS ct ON ct.commit_ts = chg.SYS_CHANGE_VERSION
+INNER JOIN sys.dm_tran_commit_time AS t ON t.commit_time = ct.commit_time
+WHERE chg.SYS_CHANGE_OPERATION IN ('I', 'U', 'D'){upper};
+""".strip()
+    value = fetch_scalar(conn, sql, "latest_ct_commit_at")
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return None
+
+
+def _sql_ct_reference_timestamp(
+    watermark_updated_at: datetime | None,
+    latest_ct_commit_at: datetime | None,
+) -> datetime | None:
+    """Reference instant on SQL side: latest pending CT commit, else watermark row time."""
+    candidates: list[datetime] = []
+    for ts in (latest_ct_commit_at, watermark_updated_at):
+        if ts is None:
+            continue
+        if ts.tzinfo is None:
+            candidates.append(ts.replace(tzinfo=timezone.utc))
+        else:
+            candidates.append(ts)
+    if not candidates:
+        return None
+    return max(candidates)
 
 
 def discover_pending_ct_tables(
@@ -92,6 +143,17 @@ def discover_pending_ct_tables(
             continue
         watermark = read_table_watermark(conn, database_name, src_schema, table_nm)
         watermark_before = watermark.last_version if watermark else 0
+        watermark_updated_at = watermark.updated_at if watermark else None
+        latest_ct_commit_at: datetime | None = None
+        try:
+            latest_ct_commit_at = fetch_latest_pending_ct_commit_time(
+                conn, src_schema, table_nm, watermark_before, ct_head
+            )
+        except Exception:
+            pass
+        sql_ct_reference_at = _sql_ct_reference_timestamp(
+            watermark_updated_at, latest_ct_commit_at
+        )
         try:
             pending = fetch_pending_ct_counts(
                 conn, src_schema, table_nm, watermark_before, ct_head
@@ -107,6 +169,8 @@ def discover_pending_ct_tables(
                 watermark_before=watermark_before,
                 ct_head_version=ct_head,
                 pending=pending,
+                watermark_updated_at=watermark_updated_at,
+                sql_ct_reference_at=sql_ct_reference_at,
             )
         )
     return pending_tables
@@ -166,7 +230,7 @@ def read_table_watermark(
     schema = (schema_name or "dbo").replace("'", "''")
     table = table_name.replace("'", "''")
     sql = f"""
-SELECT database_name, schema_name, table_name, client_nm, pipeline_key, last_version
+SELECT database_name, schema_name, table_name, client_nm, pipeline_key, last_version, updated_at
 FROM {METADATA_TABLE_PREFIX}.ct_table_watermark
 WHERE database_name = '{db}'
   AND schema_name = '{schema}'
@@ -175,6 +239,9 @@ WHERE database_name = '{db}'
     row = fetch_one_as_dict(conn, sql)
     if not row:
         return None
+    updated_at = row.get("updated_at")
+    if isinstance(updated_at, datetime) and updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
     return TableWatermark(
         database_name=str(row["database_name"]),
         schema_name=str(row["schema_name"]),
@@ -182,6 +249,7 @@ WHERE database_name = '{db}'
         last_version=int(row["last_version"]),
         client_nm=str(row.get("client_nm") or ""),
         pipeline_key=str(row.get("pipeline_key") or ""),
+        updated_at=updated_at if isinstance(updated_at, datetime) else None,
     )
 
 
