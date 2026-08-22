@@ -71,6 +71,20 @@ def test_evaluate_simple_waiting():
     assert "CT pending" in msg
 
 
+def test_evaluate_simple_api_update_complete():
+    status, msg = evaluate_simple_recon(
+        None,
+        CtPendingCounts(inserts=5),
+        recon_type=1,
+        None,
+        None,
+        pass_rule="flow_complete",
+        api_update_complete=True,
+    )
+    assert status == "PASS"
+    assert "API last update COMPLETED" in msg
+
+
 def test_evaluate_simple_waiting_row_count_deferred():
     status, msg = evaluate_simple_recon(
         None,

@@ -212,7 +212,8 @@ Continuous job (`pause_status: UNPAUSED`). Widgets:
 | `lookback_hours` | `24` | Event log lookback |
 | `simplified_recon` | `true` | CT-driven simplified path (`recon_ready` only) |
 | `simple_pass_rule` | `row_count` | `auto`, `flow_complete`, `row_count`, `ct_metrics` |
-| `row_count_only_on_flow_complete` | `true` | Skip SQL/Delta `COUNT_BIG` until `flow_progress` COMPLETED (avoids full scans on Lakeflow streaming targets while ingest runs) |
+| `row_count_only_on_flow_complete` | `true` | Skip SQL/Delta `COUNT_BIG` until flow/API COMPLETED |
+| `use_api_update_complete` | `true` | Use GET pipeline `latest_update.state=COMPLETED` when event log has no `flow_progress` |
 
 Deploy:
 

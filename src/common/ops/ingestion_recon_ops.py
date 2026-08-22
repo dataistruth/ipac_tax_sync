@@ -19,7 +19,9 @@ from common.ops.pipeline_job_ops import (
     ACTIVE_UPDATE_STATES,
     DatabricksRestClient,
     FAILED_STATES,
+    describe_pipeline_status,
     _latest_update_block,
+    _pipeline_spec,
     _pipeline_state_label,
     _select_pipelines_for_ops,
 )
@@ -128,6 +130,42 @@ def pipeline_needs_event_log_poll(
     return True, f"update_state={update_state or 'UNKNOWN'}"
 
 
+def pipeline_api_update_snapshot(detail: dict[str, Any]) -> dict[str, Any]:
+    """Latest pipeline update block from GET /api/2.0/pipelines/{id}."""
+    latest = _latest_update_block(detail) if detail else {}
+    return {
+        "update_id": str(latest.get("update_id") or "").strip(),
+        "state": str(latest.get("state", "")).upper(),
+        "creation_time": latest.get("creation_time"),
+        "start_time": latest.get("start_time"),
+        "end_time": latest.get("end_time"),
+    }
+
+
+def api_update_indicates_complete(
+    detail: dict[str, Any],
+    *,
+    require_new_update: bool = False,
+    watermark: ReconEventLogWatermark | None = None,
+) -> bool:
+    """True when REST API reports the latest pipeline update is COMPLETED."""
+    snap = pipeline_api_update_snapshot(detail)
+    if snap["state"] != "COMPLETED":
+        return False
+    if not require_new_update:
+        return True
+    if watermark is None:
+        return True
+    api_id = snap["update_id"]
+    if not api_id:
+        return watermark.last_api_update_state != "COMPLETED"
+    return api_id != watermark.last_update_id or watermark.last_api_update_state != "COMPLETED"
+
+
+def _default_flow_name_for_table(table_nm: str, src_schema: str = "dbo") -> str:
+    return f"{src_schema}.{table_nm}_snapshot_flow"
+
+
 def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> int | None:
     """
     Logical row count for SCD1 recon.
@@ -231,16 +269,19 @@ def evaluate_simple_recon(
     sql_row_count: int | None,
     delta_row_count: int | None,
     pass_rule: str,
+    *,
+    api_update_complete: bool = False,
 ) -> tuple[str, str]:
     """
     Simplified pass rules (first match wins for auto):
-      flow_complete — COMPLETED flow in event log
+      flow_complete — COMPLETED flow in event log or pipeline API update COMPLETED
       row_count     — SQL COUNT_BIG == Delta COUNT_BIG
       ct_metrics    — ingest metrics vs CT (recon_type 2/3 rules)
       auto          — try all three in order
     Returns (status, message) where status is PASS | FAIL | WAITING.
     """
-    flow_complete = summary is not None and summary.final_flow_status == "COMPLETED"
+    event_log_complete = summary is not None and summary.final_flow_status == "COMPLETED"
+    flow_complete = event_log_complete or api_update_complete
 
     rules = (
         ["flow_complete", "row_count", "ct_metrics"]
@@ -250,7 +291,11 @@ def evaluate_simple_recon(
 
     for rule in rules:
         if rule == "flow_complete" and flow_complete:
-            return "PASS", "flow_progress COMPLETED in event log"
+            if event_log_complete:
+                return "PASS", "flow_progress COMPLETED in event log"
+            if api_update_complete:
+                return "PASS", "pipeline API last update COMPLETED"
+            return "PASS", "flow COMPLETED"
         if rule == "row_count" and sql_row_count is not None and delta_row_count is not None:
             if sql_row_count == delta_row_count:
                 return "PASS", f"row_count match sql={sql_row_count} delta={delta_row_count}"
@@ -289,6 +334,10 @@ def run_simplified_pipeline_recon(
     recon_run_id: str | None = None,
     audit_conn: Any | None = None,
     row_count_only_on_flow_complete: bool = True,
+    pipeline_detail: dict[str, Any] | None = None,
+    use_api_update_complete: bool = True,
+    event_log_watermark: ReconEventLogWatermark | None = None,
+    ct_head_cache: dict[str, int] | None = None,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -299,12 +348,42 @@ def run_simplified_pipeline_recon(
         ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key)
 
     active_tables = [cfg.table_nm for cfg in ctx.tables]
+    api_snap = pipeline_api_update_snapshot(pipeline_detail or {})
+    api_update_complete = use_api_update_complete and api_update_indicates_complete(
+        pipeline_detail or {},
+        watermark=event_log_watermark,
+    )
     print(
         f"[recon] pipeline={ctx.pipeline_key} client={client.client_nm} "
         f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
         f"active_tables={len(active_tables)} pass_rule={pass_rule} "
-        f"row_count_only_on_flow_complete={row_count_only_on_flow_complete}"
+        f"row_count_only_on_flow_complete={row_count_only_on_flow_complete} "
+        f"use_api_update_complete={use_api_update_complete}"
     )
+    if pipeline_detail:
+        print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(pipeline_detail)}")
+    if api_snap.get("update_id") or api_snap.get("state"):
+        print(
+            f"[recon] {ctx.pipeline_key} API last_update: "
+            f"update_id={api_snap['update_id'] or 'n/a'} "
+            f"state={api_snap['state'] or 'NONE'} "
+            f"end_time={api_snap.get('end_time') or 'n/a'}"
+        )
+    if event_log_watermark is not None:
+        print(
+            f"[recon] {ctx.pipeline_key} SQL watermark: "
+            f"last_update_id={event_log_watermark.last_update_id or 'n/a'} "
+            f"last_api_state={event_log_watermark.last_api_update_state or 'n/a'} "
+            f"last_event_ts={event_log_watermark.last_event_ts or 'n/a'}"
+        )
+    is_continuous = bool(_pipeline_spec(pipeline_detail or {}).get("continuous"))
+    if is_continuous and api_snap.get("state") == "RUNNING":
+        print(
+            f"[recon] {ctx.pipeline_key}: continuous pipeline — "
+            "API update_state=RUNNING is normal (COMPLETED may not appear)"
+        )
+
+    head_cache = ct_head_cache if ct_head_cache is not None else {}
 
     conn = audit_conn
     owns_conn = False
@@ -371,22 +450,49 @@ def run_simplified_pipeline_recon(
             (s for s in summaries if s.table_name.casefold() == table_nm.casefold()),
             None,
         )
-        flow_complete = summary is not None and summary.final_flow_status == "COMPLETED"
+        flow_complete = (
+            summary is not None and summary.final_flow_status == "COMPLETED"
+        ) or api_update_complete
+
+        stable_key = f"{client.src_db_nm}.{src_schema}.{table_nm}"
+        prev_ct_head = head_cache.get(stable_key)
+        ct_head_stable = (
+            prev_ct_head is not None and prev_ct_head == probe.ct_head_version
+        )
+        head_cache[stable_key] = probe.ct_head_version
 
         sql_count: int | None = None
         delta_count: int | None = None
 
         if pass_rule in ("auto", "flow_complete") and flow_complete:
-            status, message = "PASS", "flow_progress COMPLETED in event log"
+            if summary is not None and summary.final_flow_status == "COMPLETED":
+                status, message = "PASS", "flow_progress COMPLETED in event log"
+            elif api_update_complete:
+                status, message = "PASS", "pipeline API last update COMPLETED"
+            else:
+                status, message = "PASS", "flow COMPLETED"
         else:
             if pass_rule in ("row_count", "auto"):
-                defer_row_count = row_count_only_on_flow_complete and not flow_complete
+                defer_row_count = (
+                    row_count_only_on_flow_complete
+                    and not flow_complete
+                    and not ct_head_stable
+                )
                 if defer_row_count:
                     print(
                         f"[recon] {ctx.pipeline_key} {table_nm}: "
-                        "deferring COUNT_BIG until flow COMPLETED"
+                        "deferring COUNT_BIG until flow COMPLETED or CT head stable"
                     )
-                else:
+                elif (
+                    row_count_only_on_flow_complete
+                    and ct_head_stable
+                    and not flow_complete
+                ):
+                    print(
+                        f"[recon] {ctx.pipeline_key} {table_nm}: "
+                        f"CT head stable at {probe.ct_head_version} — running row_count"
+                    )
+                if not defer_row_count:
                     sql_count = fetch_sql_row_count(conn, src_schema, table_nm)
                     uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
                     delta_count = (
@@ -419,6 +525,7 @@ def run_simplified_pipeline_recon(
                 sql_count,
                 delta_count,
                 pass_rule,
+                api_update_complete=api_update_complete,
             )
         print(f"[recon] {ctx.pipeline_key} {table_nm}: {status} — {message}")
 
@@ -426,8 +533,8 @@ def run_simplified_pipeline_recon(
             waiting_count += 1
             continue
 
-        update_id = summary.update_id if summary else ""
-        flow_name = summary.flow_name if summary else ""
+        update_id = summary.update_id if summary else api_snap.get("update_id", "")
+        flow_name = summary.flow_name if summary else _default_flow_name_for_table(table_nm, src_schema)
         pipeline_id = ctx.pipeline_id or (summary.pipeline_id if summary else "")
 
         if update_id and pipeline_id and flow_name:
@@ -841,6 +948,7 @@ def run_all_pipeline_recon(
     simplified_recon: bool = False,
     simple_pass_rule: str = "auto",
     row_count_only_on_flow_complete: bool = True,
+    use_api_update_complete: bool = True,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     if simplified_recon and not use_sql_server_audit:
@@ -896,6 +1004,8 @@ def run_all_pipeline_recon(
             unique_pipeline_ids,
         )
 
+    ct_head_cache: dict[str, int] = {}
+
     for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
         if not ctx.pipeline_id:
@@ -908,6 +1018,14 @@ def run_all_pipeline_recon(
         detail = rest_client.get(f"/api/2.0/pipelines/{ctx.pipeline_id}") or {}
         watermark = watermarks.get(ctx.pipeline_id)
         needs_poll, reason = pipeline_needs_event_log_poll(detail, watermark)
+        print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(detail)}")
+        if watermark is not None:
+            print(
+                f"[recon] {ctx.pipeline_key} stored watermark: "
+                f"last_update_id={watermark.last_update_id or 'n/a'} "
+                f"last_api_state={watermark.last_api_update_state or 'n/a'} "
+                f"last_event_ts={watermark.last_event_ts or 'n/a'}"
+            )
 
         ct_pending_probe: list[PendingCtTable] = []
         if simplified_recon and use_sql_server_audit:
@@ -964,7 +1082,12 @@ def run_all_pipeline_recon(
 
         if not pipeline_rows:
             print(f"{ctx.pipeline_key}: no new flow_progress events")
-            continue
+            if not simplified_recon:
+                continue
+            print(
+                f"{ctx.pipeline_key}: continuing simplified recon "
+                "(CT pending / API last_update tracking)"
+            )
 
         if simplified_recon:
             r, ct_n, wait_n = run_simplified_pipeline_recon(
@@ -978,6 +1101,10 @@ def run_all_pipeline_recon(
                 dbutils=dbutils,
                 pass_rule=simple_pass_rule,
                 row_count_only_on_flow_complete=row_count_only_on_flow_complete,
+                pipeline_detail=detail,
+                use_api_update_complete=use_api_update_complete,
+                event_log_watermark=watermark,
+                ct_head_cache=ct_head_cache,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n

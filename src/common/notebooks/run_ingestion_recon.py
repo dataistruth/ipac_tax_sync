@@ -42,6 +42,12 @@ dbutils.widgets.dropdown(
     ["true", "false"],
     "Defer COUNT_BIG until flow_progress COMPLETED",
 )
+dbutils.widgets.dropdown(
+    "use_api_update_complete",
+    "true",
+    ["true", "false"],
+    "Treat pipeline API last update COMPLETED as flow complete",
+)
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
@@ -59,6 +65,9 @@ simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "row_count
 row_count_only_on_flow_complete = (
     dbutils.widgets.get("row_count_only_on_flow_complete").strip().lower() == "true"
 )
+use_api_update_complete = (
+    dbutils.widgets.get("use_api_update_complete").strip().lower() == "true"
+)
 
 print(f"uc_catalog              : {uc_catalog}")
 print(f"metadata_schema         : {metadata_schema}")
@@ -74,6 +83,7 @@ print(f"use_sql_server_audit    : {use_sql_server_audit}")
 print(f"simplified_recon        : {simplified_recon}")
 print(f"simple_pass_rule        : {simple_pass_rule}")
 print(f"row_count_only_on_flow_complete : {row_count_only_on_flow_complete}")
+print(f"use_api_update_complete       : {use_api_update_complete}")
 
 # COMMAND ----------
 
@@ -187,6 +197,7 @@ while True:
         simplified_recon=simplified_recon,
         simple_pass_rule=simple_pass_rule,
         row_count_only_on_flow_complete=row_count_only_on_flow_complete,
+        use_api_update_complete=use_api_update_complete,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(
