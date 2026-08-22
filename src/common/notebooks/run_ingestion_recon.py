@@ -5,9 +5,10 @@
 # MAGIC Polls hidden `event_log(pipeline_id)` for pipelines with activity,
 # MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
 # MAGIC compares SQL Server Change Tracking (ipac_metadata.dbo watermarks) for `recon_type` 2/3,
-# MAGIC writes `recon_ready` + `process_log` on PASS.
+# MAGIC writes `recon_ready` to UC Delta (calc gate only).
 # MAGIC
-# MAGIC Continuous loop: poll ingestion event log → compare CT watermarks / counts (recon_type 2/3) → write `recon_ready`.
+# MAGIC Continuous loop: poll CT → compare Delta history / counts → one `recon_ready` row per database PASS.
+# MAGIC SQL Server holds watermarks and recon audit only (no SQL process_log).
 # MAGIC
 # MAGIC **Dependencies:** `mssql-python` and `pydantic>=2` via `%pip` in cell 1 (runtime ships Pydantic v1).
 

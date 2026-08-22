@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -720,6 +721,97 @@ PASS_RULES_DELTA_HISTORY = frozenset(
     {"ingest_quiesce", "ct_delta_history", "table_after_ct"}
 )
 
+DATABASE_RECON_FLOW_NAME = "__database_recon__"
+
+
+@dataclass
+class SimplifiedTableOutcome:
+    table_nm: str
+    schema_name: str
+    recon_type: int
+    probe: PendingCtTable
+    status: str
+    message: str
+    ingest_change_rows: int = 0
+    sql_count: int | None = None
+    delta_count: int | None = None
+    table_refresh: dict[str, Any] | None = None
+    update_id: str = ""
+    flow_name: str = ""
+
+
+def _table_entry_for_json(outcome: SimplifiedTableOutcome) -> dict[str, Any]:
+    probe = outcome.probe
+    refresh = outcome.table_refresh or {}
+    return {
+        "schema_name": outcome.schema_name,
+        "table_name": outcome.table_nm,
+        "recon_type": outcome.recon_type,
+        "watermark_before": probe.watermark_before,
+        "ct_head_version": probe.ct_head_version,
+        "pending_inserts": probe.pending.inserts,
+        "pending_updates": probe.pending.updates,
+        "pending_deletes": probe.pending.deletes,
+        "pending_total": probe.pending.total,
+        "sql_ct_reference_at": (
+            probe.sql_ct_reference_at.isoformat()
+            if probe.sql_ct_reference_at
+            else None
+        ),
+        "sql_count": outcome.sql_count,
+        "delta_count": outcome.delta_count,
+        "delta_version": refresh.get("delta_version"),
+        "last_write_at": (
+            refresh.get("last_refreshed_at").isoformat()
+            if refresh.get("last_refreshed_at") is not None
+            and hasattr(refresh.get("last_refreshed_at"), "isoformat")
+            else str(refresh.get("last_refreshed_at") or "")
+        ),
+        "delta_operation": refresh.get("latest_refresh_status"),
+        "status": outcome.status,
+        "message": outcome.message,
+    }
+
+
+def build_database_tables_json(outcomes: list[SimplifiedTableOutcome]) -> str:
+    payload = {"tables": [_table_entry_for_json(o) for o in outcomes]}
+    return json.dumps(payload, default=str)
+
+
+def build_database_recon_ready_row(
+    client: Any,
+    ctx: Any,
+    outcomes: list[SimplifiedTableOutcome],
+    *,
+    pipeline_id: str,
+    update_id: str,
+    ct_watermark_before: int | None,
+    ct_head_version: int | None,
+    completed_at: datetime,
+) -> ReconReadyRow:
+    source_total = sum(
+        o.probe.pending.metric_for_recon_type(o.recon_type) for o in outcomes
+    )
+    ingest_total = sum(o.ingest_change_rows for o in outcomes)
+    db_name = client.src_db_nm
+    return ReconReadyRow(
+        client_nm=client.client_nm,
+        table_nm=db_name,
+        database_name=db_name,
+        pipeline_id=pipeline_id,
+        update_id=update_id,
+        flow_name=DATABASE_RECON_FLOW_NAME,
+        recon_type=1,
+        ingest_change_rows=ingest_total,
+        source_change_rows=source_total,
+        completed_at=completed_at,
+        artifact_run_id=update_id,
+        ready_for_calc=True,
+        tables_json=build_database_tables_json(outcomes),
+        ct_watermark_before=ct_watermark_before,
+        ct_head_version=ct_head_version,
+    )
+
 
 def evaluate_ingest_quiesce_recon(
     metrics: list[FlowMetricsRow],
@@ -951,6 +1043,16 @@ def run_simplified_pipeline_recon(
             print(f"[recon] WARN insert_recon_run failed: {exc}")
             run_id = None
 
+    db_watermark_before: int | None = None
+    try:
+        db_wm = read_db_watermark(conn, client.src_db_nm)
+        if db_wm is not None:
+            db_watermark_before = db_wm.last_version
+    except Exception:
+        pass
+
+    table_outcomes: list[SimplifiedTableOutcome] = []
+
     for probe in pending_tables:
         table_nm = probe.table_name
         recon_type = _recon_type_for_table(ctx, table_nm)
@@ -1123,85 +1225,140 @@ def run_simplified_pipeline_recon(
             elif status == "WAITING":
                 delta_after_ct_wait += 1
 
-        if status == "WAITING":
-            waiting_count += 1
-            continue
-
-        update_id = summary.update_id if summary else (
+        row_update_id = summary.update_id if summary else (
             metrics[-1].update_id if metrics else api_snap.get("update_id", "")
         )
         if pass_rule == "ct_delta_history" and table_refresh:
             dlt_uid = table_refresh.get("dlt_update_id")
             if dlt_uid:
-                update_id = str(dlt_uid)
+                row_update_id = str(dlt_uid)
         flow_name = summary.flow_name if summary else _default_flow_name_for_table(table_nm, src_schema)
         pipeline_id = ctx.pipeline_id or (summary.pipeline_id if summary else "")
-
-        if update_id and pipeline_id and flow_name:
-            if recon_already_recorded(
-                spark, catalog, metadata_schema, pipeline_id, update_id, flow_name
-            ):
-                print(f"[recon] {ctx.pipeline_key} {table_nm}: SKIP already in recon_ready")
-                continue
-
         ingest_change = summary.total_change_rows if summary else (
             sum(m.rows_upserted or 0 for m in metrics) + sum(m.rows_deleted or 0 for m in metrics)
         )
-        source_metric = probe.pending.metric_for_recon_type(recon_type)
+
+        table_outcomes.append(
+            SimplifiedTableOutcome(
+                table_nm=table_nm,
+                schema_name=src_schema,
+                recon_type=recon_type,
+                probe=probe,
+                status=status,
+                message=message,
+                ingest_change_rows=ingest_change,
+                sql_count=sql_count,
+                delta_count=delta_count,
+                table_refresh=table_refresh,
+                update_id=row_update_id or "",
+                flow_name=flow_name or "",
+            )
+        )
+
+        if status == "WAITING":
+            waiting_count += 1
+
+    ct_head_version = (
+        pending_tables[0].ct_head_version if pending_tables else None
+    )
+    batch_update_id = api_snap.get("update_id", "")
+    for outcome in table_outcomes:
+        if outcome.update_id:
+            batch_update_id = outcome.update_id
+            break
+    pipeline_id = ctx.pipeline_id or ""
+
+    batch_fail = [o for o in table_outcomes if o.status == "FAIL"]
+    batch_waiting = [o for o in table_outcomes if o.status == "WAITING"]
+    batch_pass = [o for o in table_outcomes if o.status == "PASS"]
+    batch_all_pass = batch_pass and len(batch_pass) == len(table_outcomes)
+
+    for outcome in table_outcomes:
         try:
             record_recon_table_result(
                 conn,
                 recon_run_id=run_id,
                 client_nm=client.client_nm,
                 database_name=client.src_db_nm,
-                schema_name=src_schema,
-                table_name=table_nm,
+                schema_name=outcome.schema_name,
+                table_name=outcome.table_nm,
                 pipeline_id=pipeline_id,
-                update_id=update_id,
-                flow_name=flow_name,
-                recon_type=recon_type,
-                watermark_before=probe.watermark_before,
-                ct_head_version=probe.ct_head_version,
-                pending=probe.pending,
-                ingest_upserted=summary.total_upserted if summary else 0,
-                ingest_deleted=summary.total_deleted if summary else 0,
-                ingest_change_rows=ingest_change,
-                sync_status=status,
-                recon_message=message,
-                watermark_advanced=status == "PASS",
+                update_id=batch_update_id or outcome.update_id,
+                flow_name=outcome.flow_name or DATABASE_RECON_FLOW_NAME,
+                recon_type=outcome.recon_type,
+                watermark_before=outcome.probe.watermark_before,
+                ct_head_version=outcome.probe.ct_head_version,
+                pending=outcome.probe.pending,
+                ingest_upserted=0,
+                ingest_deleted=0,
+                ingest_change_rows=outcome.ingest_change_rows,
+                sync_status=outcome.status,
+                recon_message=outcome.message,
+                watermark_advanced=batch_all_pass and outcome.status == "PASS",
             )
         except Exception as exc:
             print(f"[recon] WARN record_recon_table_result: {exc}")
 
-        if status == "PASS":
-            completed_at = summary.last_event_time if summary else datetime.now(timezone.utc)
-            ready = ReconReadyRow(
-                client_nm=client.client_nm,
-                table_nm=table_nm,
+    if batch_fail:
+        print(
+            f"[recon] {ctx.pipeline_key}: database recon blocked — "
+            f"{len(batch_fail)} table(s) FAIL"
+        )
+    elif batch_waiting:
+        print(
+            f"[recon] {ctx.pipeline_key}: database recon WAITING — "
+            f"{len(batch_waiting)}/{len(table_outcomes)} table(s) not ready"
+        )
+    elif batch_pass and len(batch_pass) == len(table_outcomes):
+        if pipeline_id and batch_update_id and recon_database_already_recorded(
+            spark,
+            catalog,
+            metadata_schema,
+            pipeline_id,
+            batch_update_id,
+            client.src_db_nm,
+        ):
+            print(
+                f"[recon] {ctx.pipeline_key}: SKIP database recon_ready already "
+                f"recorded update_id={batch_update_id}"
+            )
+        else:
+            completed_at = datetime.now(timezone.utc)
+            ready = build_database_recon_ready_row(
+                client,
+                ctx,
+                table_outcomes,
                 pipeline_id=pipeline_id,
-                update_id=update_id,
-                flow_name=flow_name or table_nm,
-                recon_type=recon_type,
-                ingest_change_rows=ingest_change,
-                source_change_rows=source_metric,
+                update_id=batch_update_id,
+                ct_watermark_before=db_watermark_before,
+                ct_head_version=ct_head_version,
                 completed_at=completed_at,
-                artifact_run_id=update_id,
-                ready_for_calc=True,
             )
-            ready_written += write_recon_ready_rows(spark, catalog, metadata_schema, [ready])
-            upsert_table_watermark(
-                conn,
-                client.src_db_nm,
-                src_schema,
-                table_nm,
-                probe.ct_head_version,
-                client_nm=client.client_nm,
-                pipeline_key=ctx.pipeline_key,
+            ready_written += write_recon_ready_rows(
+                spark, catalog, metadata_schema, [ready]
             )
-            upsert_db_watermark(
-                conn, client.src_db_nm, probe.ct_head_version, client_nm=client.client_nm
+            for outcome in batch_pass:
+                upsert_table_watermark(
+                    conn,
+                    client.src_db_nm,
+                    outcome.schema_name,
+                    outcome.table_nm,
+                    outcome.probe.ct_head_version,
+                    client_nm=client.client_nm,
+                    pipeline_key=ctx.pipeline_key,
+                )
+            if ct_head_version is not None:
+                upsert_db_watermark(
+                    conn,
+                    client.src_db_nm,
+                    ct_head_version,
+                    client_nm=client.client_nm,
+                )
+            print(
+                f"[recon] PASS {ctx.pipeline_key} database={client.src_db_nm} "
+                f"tables={len(batch_pass)} ct_head={ct_head_version} "
+                f"→ recon_ready written (1 row)"
             )
-            print(f"[recon] PASS {ctx.pipeline_key} {table_nm} → recon_ready written")
 
     if pass_rule in PASS_RULES_DELTA_HISTORY and pending_tables:
         print(
@@ -1312,6 +1469,32 @@ def recon_already_recorded(
         return len(rows) > 0
     except Exception:
         return False
+
+
+def recon_database_already_recorded(
+    spark,
+    catalog: str,
+    metadata_schema: str,
+    pipeline_id: str,
+    update_id: str,
+    database_name: str,
+) -> bool:
+    """Idempotency for one DB-level recon_ready per pipeline update."""
+    return recon_already_recorded(
+        spark,
+        catalog,
+        metadata_schema,
+        pipeline_id,
+        update_id,
+        DATABASE_RECON_FLOW_NAME,
+    ) or recon_already_recorded(
+        spark,
+        catalog,
+        metadata_schema,
+        pipeline_id,
+        update_id,
+        database_name,
+    )
 
 
 def run_pipeline_recon(

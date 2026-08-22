@@ -46,7 +46,9 @@ Low-latency CT state lives in the dedicated **`ipac_metadata`** database on SQL 
 1. Run SQL scripts in order from `src/common/sql_server/sql/`:
    - `001_create_database.sql`
    - `002_ct_recon_tables.sql`
-   - `003_process_log_table.sql` (optional SQL ops log)
+   - `002_ct_recon_tables.sql`
+   - `004_grants.sql` (edit `@AuditLogin`)
+   - Skip `003_process_log_table.sql` (`process_log` is UC only)
    - `004_grants.sql` (replace `YOUR_ADMIN_SQL_LOGIN`)
    - Optional: `006_baseline_ct_watermarks.sql`
 
@@ -100,13 +102,54 @@ Continuous pipelines do **not** wait for the whole pipeline update to finish—o
 
 Metrics in the event log are **deltas** (reset each emission). The recon job **sums** upserted/deleted/output rows across all events for that `(update_id, flow_name)` window.
 
-## Unity Catalog tables
+## Where data lives (UC vs SQL Server)
 
-All tables live in `{uc_catalog}.{ipac_metadata_schema}` (default `ipac_tax_synch.ipac_metadata`).
+| Store | Location | Contents |
+|-------|----------|----------|
+| **Unity Catalog Delta** | `{uc_catalog}.{ipac_metadata_schema}` | **`recon_ready`** (calc gate), **`process_log`** (heartbeat + restart) |
+| **Unity Catalog Delta** | same schema | **`ingest_events_p_*`** (published pipeline event logs) |
+| **SQL Server** | `ipac_metadata.dbo` | CT watermarks, recon audit, event-log poll state |
+
+SQL scripts: `src/common/sql_server/sql/` (`001` → `006`).
+
+Simplified recon (`simplified_recon=true`) writes **only** `recon_ready` to UC; everything else goes to SQL Server.
+
+### Reset UC metadata schema (recon_ready only)
+
+**Option A — notebook** `src/common/notebooks/setup_uc_recon_ready_only.py`  
+Set widgets `drop_schema_first=true`, run once.
+
+**Option B — SQL + notebook**
+
+```sql
+-- Drops ALL tables in the UC metadata schema (including old lakeflow_flow_* if present)
+DROP SCHEMA IF EXISTS dev7.ipac_metadata CASCADE;
+CREATE SCHEMA dev7.ipac_metadata;
+```
+
+Then in a cluster notebook:
+
+```python
+from common.ops.recon_store import ensure_recon_ready_table
+ensure_recon_ready_table(spark, "dev7", "ipac_metadata")
+```
+
+**Do not drop** SQL Server `ipac_metadata` when resetting UC — watermarks and audit history stay there.
+
+## Unity Catalog — `recon_ready`
+
+Only operational Delta tables in `{uc_catalog}.{ipac_metadata_schema}` for recon/ops:
+
+| Table | Used by |
+|-------|---------|
+| `recon_ready` | Simplified recon → calc gate |
+| `process_log` | Heartbeat monitor, restart-failed-pipelines (unchanged) |
+
+Legacy tables (`lakeflow_flow_metrics`, `lakeflow_flow_summary`, UC `recon_event_log_watermark`) are **not used** by simplified recon. Keep **`process_log`** on UC for heartbeat/restart jobs.
 
 ### Published event logs (per pipeline)
 
-Generated pipelines include:
+Still in UC (separate from recon_ready):
 
 ```yaml
 event_log:
@@ -115,65 +158,46 @@ event_log:
   name: ingest_events_p_<client_nm>_<serial>
 ```
 
-Example: `ipac_tax_synch.ipac_metadata.ingest_events_p_iPC_2025_Dev7_15347_1`
-
-Regenerate and redeploy pipelines after enabling event log publishing:
-
-```bash
-./ipac-delta-sync generate
-databricks bundle deploy
-```
-
-### `lakeflow_flow_metrics`
-
-Raw `flow_progress` rows. Merge key: `event_id`.
-
-| Column | Description |
-|--------|-------------|
-| `event_id` | Lakeflow event log id |
-| `pipeline_id`, `pipeline_name`, `update_id`, `flow_name` | Origin |
-| `table_name` | `origin.dataset_name` or resolved config name |
-| `event_timestamp`, `flow_status` | Event time and status |
-| `output_rows`, `rows_upserted`, `rows_deleted`, `output_bytes` | Metrics |
-| `client_nm`, `destination_schema`, `destination_table` | Resolved from config |
-| `captured_at` | When recon job captured the row |
-
-### `lakeflow_flow_summary`
-
-One row per completed flow aggregate.
-
-| Column | Description |
-|--------|-------------|
-| `summary_id` | UUID |
-| `pipeline_id`, `update_id`, `flow_name`, `table_name` | Grain |
-| `recon_type` | From table config |
-| `total_output_rows`, `total_upserted`, `total_deleted`, `total_change_rows` | Summed deltas |
-| `first_event_time`, `last_event_time`, `metric_duration_sec` | Window |
-| `final_flow_status` | Must be `COMPLETED` |
-| `recon_status` | `PENDING`, `PASS`, `FAIL`, `SKIPPED` |
-| `source_change_rows` | SQL Server CT count when `recon_type` 2/3 |
-| `recon_message` | PASS/FAIL detail |
+Example: `dev7.ipac_metadata.ingest_events_p_iPC_2025_Dev7_15347_1`
 
 ### `recon_ready`
 
-**PASS rows only** — calc gate.
+**PASS rows only** — calc gate. Simplified recon publishes **one row per database** when all pending tables PASS.
 
 | Column | Description |
 |--------|-------------|
 | `recon_id` | UUID |
-| `client_nm`, `table_nm` | Client and table |
-| `pipeline_id`, `update_id`, `flow_name` | Idempotency key with flow |
-| `recon_type` | 1, 2, or 3 |
-| `ingest_change_rows`, `source_change_rows` | Compared metrics |
-| `completed_at` | Flow `last_event_time` |
+| `client_nm` | Client |
+| `table_nm` | SQL database name (same as `database_name`) |
+| `database_name` | SQL Server database reconciled |
+| `tables_json` | JSON list of all tables in the batch (names, pending CT, counts, delta version) |
+| `ct_watermark_before` | `ct_db_watermark.last_version` at recon start |
+| `ct_head_version` | `CHANGE_TRACKING_CURRENT_VERSION()` at PASS |
+| `pipeline_id`, `update_id` | Pipeline update idempotency |
+| `flow_name` | `__database_recon__` for DB-level rows |
+| `ingest_change_rows`, `source_change_rows` | Summed across tables in batch |
+| `completed_at` | Batch completion time |
 | `artifact_run_id` | Pipeline `update_id` |
 | `ready_for_calc` | `true` |
 
-Duplicate `(pipeline_id, update_id, flow_name)` are skipped.
+Duplicate `(pipeline_id, update_id, flow_name=__database_recon__)` are skipped.
 
-### `process_log`
+Example query:
 
-On PASS or FAIL, recon also appends ingest rows to shared `process_log` (see main README). PASS uses `current_status = SUCCESS`; FAIL uses `FAILED`.
+```sql
+SELECT
+  database_name,
+  ct_watermark_before,
+  ct_head_version,
+  update_id,
+  completed_at,
+  tables_json
+FROM dev7.ipac_metadata.recon_ready
+WHERE client_nm = 'iPC_2025_DEV7_15447'
+ORDER BY completed_at DESC;
+```
+
+Audit / watermarks remain in SQL Server (`recon_table_result`, `ct_table_watermark`, etc.).
 
 ## Bundle configuration (`databricks.yml`)
 
@@ -186,13 +210,14 @@ On PASS or FAIL, recon also appends ingest rows to shared `process_log` (see mai
 | `recon_lookback_hours` | `24` | Event log scan window per poll |
 | `heartbeat_job_alert_mail` | (email) | Recon job failure notifications |
 
-DDL is generated on `generate`:
+DDL is generated on `generate` (UC recon_ready only):
 
 ```bash
 ./ipac-delta-sync generate
-# → generated/schema/ipac_metadata_recon_tables.sql
-# → generated/schema/ipac_metadata_process_log.sql
+# → generated/schema/ipac_metadata_recon_ready.sql
 ```
+
+SQL Server DDL: run scripts in `src/common/sql_server/sql/` on the instance.
 
 ## Recon job
 

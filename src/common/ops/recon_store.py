@@ -124,6 +124,10 @@ class ReconReadyRow:
     artifact_run_id: str
     ready_for_calc: bool = True
     recon_id: str = ""
+    database_name: str = ""
+    tables_json: str = ""
+    ct_watermark_before: int | None = None
+    ct_head_version: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -140,6 +144,10 @@ class ReconReadyRow:
             "completed_at": self.completed_at,
             "artifact_run_id": self.artifact_run_id,
             "ready_for_calc": self.ready_for_calc,
+            "database_name": self.database_name or self.table_nm,
+            "tables_json": self.tables_json or "",
+            "ct_watermark_before": self.ct_watermark_before,
+            "ct_head_version": self.ct_head_version,
         }
 
 
@@ -371,7 +379,7 @@ def recon_ready_create_sql(catalog: str, schema: str) -> str:
 CREATE TABLE IF NOT EXISTS {table} (
   recon_id STRING NOT NULL,
   client_nm STRING NOT NULL,
-  table_nm STRING NOT NULL,
+  table_nm STRING NOT NULL COMMENT 'Database name for DB-level recon rows',
   pipeline_id STRING NOT NULL,
   update_id STRING NOT NULL,
   flow_name STRING NOT NULL,
@@ -380,7 +388,11 @@ CREATE TABLE IF NOT EXISTS {table} (
   source_change_rows BIGINT,
   completed_at TIMESTAMP NOT NULL,
   artifact_run_id STRING COMMENT 'Pipeline update_id for calc gating',
-  ready_for_calc BOOLEAN NOT NULL
+  ready_for_calc BOOLEAN NOT NULL,
+  database_name STRING COMMENT 'SQL Server database name',
+  tables_json STRING COMMENT 'JSON array of reconciled tables in this batch',
+  ct_watermark_before BIGINT COMMENT 'ct_db_watermark at recon start',
+  ct_head_version BIGINT COMMENT 'CHANGE_TRACKING_CURRENT_VERSION at PASS'
 )
 USING DELTA
 COMMENT 'PASS rows only — gate for ipac-sdt-calc'
@@ -414,6 +426,7 @@ def ensure_recon_ready_table(spark, catalog: str, schema: str) -> None:
 
     ensure_uc_schema(spark, catalog, schema)
     spark.sql(recon_ready_create_sql(catalog, schema))
+    _evolve_recon_ready_table(spark, catalog, schema)
 
 
 def _flow_metrics_spark_schema():
@@ -490,8 +503,27 @@ def _recon_ready_spark_schema():
             StructField("completed_at", TimestampType(), False),
             StructField("artifact_run_id", StringType(), True),
             StructField("ready_for_calc", BooleanType(), False),
+            StructField("database_name", StringType(), True),
+            StructField("tables_json", StringType(), True),
+            StructField("ct_watermark_before", LongType(), True),
+            StructField("ct_head_version", LongType(), True),
         ]
     )
+
+
+def _evolve_recon_ready_table(spark, catalog: str, schema: str) -> None:
+    """Add DB-level columns to existing recon_ready tables."""
+    table = qualified_table(catalog, schema, RECON_READY_TABLE)
+    for col_def in (
+        "database_name STRING",
+        "tables_json STRING",
+        "ct_watermark_before BIGINT",
+        "ct_head_version BIGINT",
+    ):
+        try:
+            spark.sql(f"ALTER TABLE {table} ADD COLUMNS ({col_def})")
+        except Exception:
+            pass
 
 
 def _create_typed_dataframe(spark, rows: list[dict[str, Any]], schema) -> Any:

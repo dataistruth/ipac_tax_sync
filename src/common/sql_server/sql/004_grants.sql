@@ -1,7 +1,7 @@
 /*
     Grants for ipac_metadata.dbo + Change Tracking read on client DBs.
 
-    Prerequisite: 002_ct_recon_tables.sql and 003_process_log_table.sql
+    Prerequisite: 002_ct_recon_tables.sql
 
     Use your EXISTING admin SQL login — no new login required.
     Edit @AuditLogin below (same value in both sections).

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from common.ops.ingestion_recon_ops import (
+    build_database_tables_json,
     count_delta_table_rows,
     evaluate_ct_delta_history_recon,
     evaluate_ingest_quiesce_recon,
@@ -10,11 +11,13 @@ from common.ops.ingestion_recon_ops import (
     evaluate_table_refresh_after_sql_ct,
     select_row_count_sample_tables,
     summarize_delta_history_refresh,
+    SimplifiedTableOutcome,
 )
 from common.ops.lakeflow_event_ops import FlowSummaryRow
 from common.ops.recon_store import FlowMetricsRow, resolve_uc_table_ref, UcTableRef, is_streaming_uc_table
 from common.ops.sql_server_audit_store import CtPendingCounts, PendingCtTable
 from datetime import datetime, timedelta, timezone
+import json
 
 
 def _summary(upserted: int = 1, deleted: int = 0) -> FlowSummaryRow:
@@ -38,6 +41,32 @@ def _summary(upserted: int = 1, deleted: int = 0) -> FlowSummaryRow:
         first_event_time=now,
         last_event_time=now,
     )
+
+
+def test_build_database_tables_json():
+    probe = PendingCtTable(
+        schema_name="dbo",
+        table_name="K1Input_Snapshot",
+        watermark_before=65229,
+        ct_head_version=65239,
+        pending=CtPendingCounts(inserts=50000),
+    )
+    outcome = SimplifiedTableOutcome(
+        table_nm="K1Input_Snapshot",
+        schema_name="dbo",
+        recon_type=1,
+        probe=probe,
+        status="PASS",
+        message="ok",
+        sql_count=100,
+        delta_count=100,
+        table_refresh={"delta_version": 20, "latest_refresh_status": "MERGE"},
+    )
+    payload = json.loads(build_database_tables_json([outcome]))
+    assert len(payload["tables"]) == 1
+    assert payload["tables"][0]["table_name"] == "K1Input_Snapshot"
+    assert payload["tables"][0]["pending_total"] == 50000
+    assert payload["tables"][0]["delta_version"] == 20
 
 
 def test_select_row_count_sample_tables():
