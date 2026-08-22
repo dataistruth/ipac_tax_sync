@@ -34,7 +34,13 @@ dbutils.widgets.dropdown(
     "simple_pass_rule",
     "row_count",
     ["auto", "flow_complete", "row_count", "ct_metrics"],
-    "Pass rule: SCD1 row_count=fast SQL vs Delta numRecords",
+    "Pass rule: SCD1 row_count=SQL vs Delta COUNT_BIG",
+)
+dbutils.widgets.dropdown(
+    "row_count_only_on_flow_complete",
+    "true",
+    ["true", "false"],
+    "Defer COUNT_BIG until flow_progress COMPLETED",
 )
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
@@ -50,6 +56,9 @@ sql_audit_secret_scope = dbutils.widgets.get("sql_audit_secret_scope").strip() o
 use_sql_server_audit = dbutils.widgets.get("use_sql_server_audit").strip().lower() == "true"
 simplified_recon = dbutils.widgets.get("simplified_recon").strip().lower() == "true"
 simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "row_count"
+row_count_only_on_flow_complete = (
+    dbutils.widgets.get("row_count_only_on_flow_complete").strip().lower() == "true"
+)
 
 print(f"uc_catalog              : {uc_catalog}")
 print(f"metadata_schema         : {metadata_schema}")
@@ -64,6 +73,7 @@ print(f"sql_audit_secret_scope  : {sql_audit_secret_scope}")
 print(f"use_sql_server_audit    : {use_sql_server_audit}")
 print(f"simplified_recon        : {simplified_recon}")
 print(f"simple_pass_rule        : {simple_pass_rule}")
+print(f"row_count_only_on_flow_complete : {row_count_only_on_flow_complete}")
 
 # COMMAND ----------
 
@@ -176,6 +186,7 @@ while True:
         use_sql_server_audit=use_sql_server_audit,
         simplified_recon=simplified_recon,
         simple_pass_rule=simple_pass_rule,
+        row_count_only_on_flow_complete=row_count_only_on_flow_complete,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(

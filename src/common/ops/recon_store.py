@@ -242,6 +242,31 @@ def resolve_uc_table_ref(
 
     return UcTableRef(catalog=catalog, schema=actual_schema, table=actual_table)
 
+
+def is_streaming_uc_table(spark, ref: UcTableRef) -> bool:
+    """Lakeflow Connect MANAGED_INGESTION targets are UC STREAMING_TABLEs."""
+    try:
+        rows = spark.sql(
+            f"""
+            SELECT table_type
+            FROM {quote_ident(ref.catalog)}.information_schema.tables
+            WHERE table_schema = '{ref.schema.replace("'", "''")}'
+              AND table_name = '{ref.table.replace("'", "''")}'
+            """
+        ).collect()
+        if rows and "STREAMING" in str(rows[0][0]).upper():
+            return True
+    except Exception:
+        pass
+    try:
+        for row in spark.sql(f"DESCRIBE TABLE EXTENDED {ref.quoted_name}").collect():
+            col_name = str(row.col_name).strip()
+            data_type = str(row.data_type).strip()
+            if col_name == "Type" and "STREAMING" in data_type.upper():
+                return True
+    except Exception:
+        pass
+    return False
 @dataclass
 class ReconEventLogWatermark:
     pipeline_id: str

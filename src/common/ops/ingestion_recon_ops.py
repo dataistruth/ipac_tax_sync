@@ -36,6 +36,7 @@ from common.ops.recon_store import (
     ReconEventLogWatermark,
     qualified_table,
     resolve_uc_table_ref,
+    is_streaming_uc_table,
     read_recon_event_log_watermarks,
     RECON_READY_TABLE,
     write_flow_metrics_rows,
@@ -129,14 +130,17 @@ def pipeline_needs_event_log_poll(
 
 def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> int | None:
     """
-    Total logical row count for SCD1 recon — metadata only (no full scan).
+    Logical row count for SCD1 recon.
 
-    Prefers Delta log numRecords (DeltaTable.detail / DESCRIBE DETAIL), then COUNT_BIG.
+    - Managed Delta: DeltaTable.detail / DESCRIBE DETAIL numRecords (metadata only).
+    - Lakeflow Connect streaming targets (STREAMING_TABLE): COUNT_BIG only —
+      DeltaTable.forName and DESCRIBE DETAIL are not supported.
     """
     ref = resolve_uc_table_ref(spark, catalog, schema, table_nm)
     if ref is None:
         return None
 
+    streaming = is_streaming_uc_table(spark, ref)
     targets = [ref.name, ref.quoted_name]
     last_err: str | None = None
 
@@ -154,23 +158,26 @@ def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> i
             return None
         return int(value)
 
-    for target in targets:
-        try:
-            from delta.tables import DeltaTable
+    if not streaming:
+        for target in targets:
+            try:
+                from delta.tables import DeltaTable
 
-            detail_row = DeltaTable.forName(spark, target).detail().select("numRecords").first()
-            count = _row_count_from_detail_row(detail_row)
-            if count is not None:
-                return count
-        except Exception as exc:
-            last_err = str(exc)
-        try:
-            detail_row = spark.sql(f"DESCRIBE DETAIL {target}").select("numRecords").first()
-            count = _row_count_from_detail_row(detail_row)
-            if count is not None:
-                return count
-        except Exception as exc:
-            last_err = str(exc)
+                detail_row = DeltaTable.forName(spark, target).detail().select("numRecords").first()
+                count = _row_count_from_detail_row(detail_row)
+                if count is not None:
+                    return count
+            except Exception as exc:
+                last_err = str(exc)
+            try:
+                detail_row = spark.sql(f"DESCRIBE DETAIL {target}").select("numRecords").first()
+                count = _row_count_from_detail_row(detail_row)
+                if count is not None:
+                    return count
+            except Exception as exc:
+                last_err = str(exc)
+
+    for target in targets:
         try:
             row = spark.sql(f"SELECT COUNT_BIG(*) AS cnt FROM {target}").collect()[0]
             return int(row["cnt"])
@@ -178,9 +185,8 @@ def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> i
             last_err = str(exc)
 
     if last_err:
-        print(
-            f"[recon] WARN delta row count failed for {ref.name}: {last_err}"
-        )
+        label = "streaming" if streaming else "delta"
+        print(f"[recon] WARN {label} row count failed for {ref.name}: {last_err}")
     return None
 
 
@@ -257,6 +263,8 @@ def evaluate_simple_recon(
             return evaluated.recon_status, evaluated.recon_message
 
     if pending.total > 0 and not flow_complete:
+        if pass_rule == "row_count" and sql_row_count is None and delta_row_count is None:
+            return "WAITING", "waiting for flow COMPLETED before COUNT_BIG row_count"
         if pass_rule == "row_count" and (sql_row_count is None or delta_row_count is None):
             return (
                 "WAITING",
@@ -280,6 +288,7 @@ def run_simplified_pipeline_recon(
     *,
     recon_run_id: str | None = None,
     audit_conn: Any | None = None,
+    row_count_only_on_flow_complete: bool = True,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -293,7 +302,8 @@ def run_simplified_pipeline_recon(
     print(
         f"[recon] pipeline={ctx.pipeline_key} client={client.client_nm} "
         f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
-        f"active_tables={len(active_tables)} pass_rule={pass_rule}"
+        f"active_tables={len(active_tables)} pass_rule={pass_rule} "
+        f"row_count_only_on_flow_complete={row_count_only_on_flow_complete}"
     )
 
     conn = audit_conn
@@ -370,30 +380,38 @@ def run_simplified_pipeline_recon(
             status, message = "PASS", "flow_progress COMPLETED in event log"
         else:
             if pass_rule in ("row_count", "auto"):
-                sql_count = fetch_sql_row_count(conn, src_schema, table_nm)
-                uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
-                delta_count = (
-                    count_delta_table_rows(spark, catalog, dest_schema, table_nm)
-                    if dest_schema
-                    else None
-                )
-                if sql_count is not None or delta_count is not None:
-                    resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
-                    if uc_ref and uc_ref.name != qualified_table(catalog, dest_schema, table_nm):
-                        print(
-                            f"[recon] {ctx.pipeline_key} {table_nm}: "
-                            f"resolved UC table {resolved}"
-                        )
+                defer_row_count = row_count_only_on_flow_complete and not flow_complete
+                if defer_row_count:
                     print(
                         f"[recon] {ctx.pipeline_key} {table_nm}: "
-                        f"sql_count={sql_count} delta_count={delta_count} "
-                        f"(delta numRecords) {resolved}"
+                        "deferring COUNT_BIG until flow COMPLETED"
                     )
-                elif dest_schema:
-                    print(
-                        f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
-                        f"UC table not found {catalog}.{dest_schema}.{table_nm}"
+                else:
+                    sql_count = fetch_sql_row_count(conn, src_schema, table_nm)
+                    uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
+                    delta_count = (
+                        count_delta_table_rows(spark, catalog, dest_schema, table_nm)
+                        if dest_schema
+                        else None
                     )
+                    if sql_count is not None or delta_count is not None:
+                        resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
+                        if uc_ref and uc_ref.name != qualified_table(catalog, dest_schema, table_nm):
+                            print(
+                                f"[recon] {ctx.pipeline_key} {table_nm}: "
+                                f"resolved UC table {resolved}"
+                            )
+                        print(
+                            f"[recon] {ctx.pipeline_key} {table_nm}: "
+                            f"sql_count={sql_count} delta_count={delta_count} "
+                            f"({'streaming COUNT_BIG' if uc_ref and is_streaming_uc_table(spark, uc_ref) else 'delta numRecords'}) "
+                            f"{resolved}"
+                        )
+                    elif dest_schema:
+                        print(
+                            f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
+                            f"UC table not found {catalog}.{dest_schema}.{table_nm}"
+                        )
             status, message = evaluate_simple_recon(
                 summary,
                 probe.pending,
@@ -822,6 +840,7 @@ def run_all_pipeline_recon(
     use_sql_server_audit: bool = True,
     simplified_recon: bool = False,
     simple_pass_rule: str = "auto",
+    row_count_only_on_flow_complete: bool = True,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     if simplified_recon and not use_sql_server_audit:
@@ -958,6 +977,7 @@ def run_all_pipeline_recon(
                 client=ipac_client,
                 dbutils=dbutils,
                 pass_rule=simple_pass_rule,
+                row_count_only_on_flow_complete=row_count_only_on_flow_complete,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from common.ops.ingestion_recon_ops import count_delta_table_rows, evaluate_simple_recon
 from common.ops.lakeflow_event_ops import FlowSummaryRow
-from common.ops.recon_store import resolve_uc_table_ref, UcTableRef
+from common.ops.recon_store import resolve_uc_table_ref, UcTableRef, is_streaming_uc_table
 from common.ops.sql_server_audit_store import CtPendingCounts
 from datetime import datetime, timezone
 
@@ -71,6 +71,19 @@ def test_evaluate_simple_waiting():
     assert "CT pending" in msg
 
 
+def test_evaluate_simple_waiting_row_count_deferred():
+    status, msg = evaluate_simple_recon(
+        None,
+        CtPendingCounts(inserts=3),
+        recon_type=1,
+        None,
+        None,
+        pass_rule="row_count",
+    )
+    assert status == "WAITING"
+    assert "before COUNT_BIG" in msg
+
+
 def test_evaluate_simple_waiting_row_count_unavailable():
     status, msg = evaluate_simple_recon(
         None,
@@ -111,7 +124,38 @@ def test_resolve_uc_table_ref_case_insensitive():
 def test_count_delta_table_rows_uses_describe_detail():
     spark = MagicMock()
     spark.catalog.tableExists.return_value = True
-    spark.sql.return_value.select.return_value.first.return_value = {"numRecords": 42000}
+
+    info_schema = MagicMock()
+    info_schema.collect.return_value = [("MANAGED",)]
+
+    detail = MagicMock()
+    detail.select.return_value.first.return_value = {"numRecords": 42000}
+
+    def sql_side_effect(stmt: str):
+        if "information_schema" in stmt:
+            return info_schema
+        if "DESCRIBE DETAIL" in stmt:
+            return detail
+        return MagicMock()
+
+    spark.sql.side_effect = sql_side_effect
     assert count_delta_table_rows(spark, "cat", "schema", "Table") == 42000
-    spark.sql.assert_called_once()
-    assert "DESCRIBE DETAIL" in spark.sql.call_args[0][0]
+    assert any("DESCRIBE DETAIL" in str(c[0][0]) for c in spark.sql.call_args_list)
+
+
+def test_count_delta_table_rows_streaming_uses_count_big():
+    spark = MagicMock()
+    spark.catalog.tableExists.return_value = True
+
+    info_schema = MagicMock()
+    info_schema.collect.return_value = [("STREAMING_TABLE",)]
+    describe = MagicMock()
+    describe.collect.return_value = []
+
+    count_result = MagicMock()
+    count_result.collect.return_value = [{"cnt": 8241287}]
+
+    spark.sql.side_effect = [info_schema, count_result]
+
+    assert count_delta_table_rows(spark, "dev7", "ipc_schema", "K1Input_Snapshot") == 8241287
+    assert "COUNT_BIG" in spark.sql.call_args_list[-1][0][0]
