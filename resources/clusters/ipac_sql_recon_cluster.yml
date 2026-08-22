@@ -10,7 +10,7 @@ resources:
       num_workers: 0
       spark_conf:
         spark.databricks.cluster.profile: singleNode
-        spark.master: local[8]
+        spark.master: local[32]
       custom_tags:
         bundle: ${var.job_tag}
         purpose: sql_recon

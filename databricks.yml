@@ -90,8 +90,8 @@ variables:
     default: 15.4.x-scala2.12
     description: Spark runtime for generated Lakeflow pipeline clusters and pool preload
   sql_recon_node_type_id:
-    default: Standard_D8s_v3
-    description: Shared SQL/recon cluster node type (8 vCPU single-node)
+    default: Standard_D32s_v3
+    description: Shared SQL/recon cluster node type (32 vCPU single-node)
   sql_recon_spark_version:
     default: 15.4.x-scala2.12
     description: Spark runtime for shared SQL Server recon cluster
@@ -127,7 +127,7 @@ targets:
       pipeline_instance_pool_node_type: Standard_D32s_v3
       pipeline_instance_pool_min_idle: 4
       pipeline_instance_pool_max_capacity: 8
-      sql_recon_node_type_id: Standard_D8s_v3
+      sql_recon_node_type_id: Standard_D32s_v3
       sql_recon_spark_version: 15.4.x-scala2.12
       sql_recon_autotermination_minutes: 0
 
@@ -150,7 +150,7 @@ targets:
       pipeline_instance_pool_node_type: Standard_D32s_v3
       pipeline_instance_pool_min_idle: 4
       pipeline_instance_pool_max_capacity: 8
-      sql_recon_node_type_id: Standard_D8s_v3
+      sql_recon_node_type_id: Standard_D32s_v3
       sql_recon_spark_version: 15.4.x-scala2.12
       sql_recon_autotermination_minutes: 0
 
