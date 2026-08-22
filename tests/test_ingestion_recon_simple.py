@@ -353,7 +353,7 @@ def test_count_delta_table_rows_uses_describe_detail():
     assert any("DESCRIBE DETAIL" in str(c[0][0]) for c in spark.sql.call_args_list)
 
 
-def test_count_delta_table_rows_streaming_uses_count_big():
+def test_count_delta_table_rows_streaming_uses_count():
     spark = MagicMock()
     spark.catalog.tableExists.return_value = True
 
@@ -368,4 +368,4 @@ def test_count_delta_table_rows_streaming_uses_count_big():
     spark.sql.side_effect = [info_schema, count_result]
 
     assert count_delta_table_rows(spark, "dev7", "ipc_schema", "K1Input_Snapshot") == 8241287
-    assert "COUNT_BIG" in spark.sql.call_args_list[-1][0][0]
+    assert "COUNT(1)" in spark.sql.call_args_list[-1][0][0]

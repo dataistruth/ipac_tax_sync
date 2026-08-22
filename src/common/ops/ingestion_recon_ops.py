@@ -176,8 +176,8 @@ def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> i
     Logical row count for SCD1 recon.
 
     - Managed Delta: DeltaTable.detail / DESCRIBE DETAIL numRecords (metadata only).
-    - Lakeflow Connect streaming targets (STREAMING_TABLE): COUNT_BIG only —
-      DeltaTable.forName and DESCRIBE DETAIL are not supported.
+    - Lakeflow Connect streaming targets (STREAMING_TABLE): COUNT(1) —
+      DeltaTable.forName and DESCRIBE DETAIL are not supported on UC streaming tables.
     """
     ref = resolve_uc_table_ref(spark, catalog, schema, table_nm)
     if ref is None:
@@ -222,7 +222,7 @@ def count_delta_table_rows(spark, catalog: str, schema: str, table_nm: str) -> i
 
     for target in targets:
         try:
-            row = spark.sql(f"SELECT COUNT_BIG(*) AS cnt FROM {target}").collect()[0]
+            row = spark.sql(f"SELECT COUNT(1) AS cnt FROM {target}").collect()[0]
             return int(row["cnt"])
         except Exception as exc:
             last_err = str(exc)
@@ -1098,7 +1098,7 @@ def run_simplified_pipeline_recon(
                         print(
                             f"[recon] {ctx.pipeline_key} {table_nm}: "
                             f"sql_count={sql_count} delta_count={delta_count} "
-                            f"({'streaming COUNT_BIG' if uc_ref and is_streaming_uc_table(spark, uc_ref) else 'delta numRecords'}) "
+                            f"({'streaming COUNT(1)' if uc_ref and is_streaming_uc_table(spark, uc_ref) else 'delta numRecords'}) "
                             f"{resolved}"
                         )
                     elif dest_schema:
