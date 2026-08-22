@@ -4,15 +4,16 @@ from unittest.mock import MagicMock
 
 from common.ops.ingestion_recon_ops import (
     count_delta_table_rows,
+    evaluate_ct_delta_history_recon,
     evaluate_ingest_quiesce_recon,
     evaluate_simple_recon,
     evaluate_table_refresh_after_sql_ct,
+    select_row_count_sample_tables,
     summarize_delta_history_refresh,
 )
 from common.ops.lakeflow_event_ops import FlowSummaryRow
-from common.ops.recon_store import FlowMetricsRow
-from common.ops.recon_store import resolve_uc_table_ref, UcTableRef, is_streaming_uc_table
-from common.ops.sql_server_audit_store import CtPendingCounts
+from common.ops.recon_store import FlowMetricsRow, resolve_uc_table_ref, UcTableRef, is_streaming_uc_table
+from common.ops.sql_server_audit_store import CtPendingCounts, PendingCtTable
 from datetime import datetime, timedelta, timezone
 
 
@@ -37,6 +38,75 @@ def _summary(upserted: int = 1, deleted: int = 0) -> FlowSummaryRow:
         first_event_time=now,
         last_event_time=now,
     )
+
+
+def test_select_row_count_sample_tables():
+    probes = [
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Small",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=5),
+        ),
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Big",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=50000),
+        ),
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Mid",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=100),
+        ),
+    ]
+    sample = select_row_count_sample_tables(probes, sample_size=2)
+    assert sample == {"big", "mid"}
+
+
+def test_evaluate_ct_delta_history_pass_history_only():
+    merge_at = datetime(2026, 8, 22, 1, 0, 0, tzinfo=timezone.utc)
+    sql_ct = datetime(2026, 8, 21, 22, 59, 28, tzinfo=timezone.utc)
+    refresh = {
+        "last_refreshed_at": merge_at,
+        "latest_refresh_status": "MERGE",
+        "delta_version": 20,
+        "source": "delta_history",
+    }
+    status, msg = evaluate_ct_delta_history_recon(
+        refresh,
+        sql_ct,
+        quiesce_sec=15,
+        pending=CtPendingCounts(inserts=50000),
+        recon_type=1,
+        sql_row_count=None,
+        delta_row_count=None,
+        require_row_count=False,
+    )
+    assert status == "PASS"
+    assert "ct_delta_history" in msg
+
+
+def test_evaluate_ct_delta_history_fail_sample_mismatch():
+    merge_at = datetime(2026, 8, 22, 1, 0, 0, tzinfo=timezone.utc)
+    sql_ct = datetime(2026, 8, 21, 22, 59, 28, tzinfo=timezone.utc)
+    refresh = {"last_refreshed_at": merge_at, "latest_refresh_status": "MERGE"}
+    status, msg = evaluate_ct_delta_history_recon(
+        refresh,
+        sql_ct,
+        15,
+        CtPendingCounts(inserts=10),
+        1,
+        100,
+        99,
+        require_row_count=True,
+    )
+    assert status == "FAIL"
+    assert "sample mismatch" in msg
 
 
 def test_summarize_delta_history_refresh_prefers_merge():
@@ -102,7 +172,7 @@ def test_evaluate_table_refresh_after_sql_ct_pass():
         quiesce_sec=15,
     )
     assert status == "PASS"
-    assert "delta refreshed after SQL CT" in msg
+    assert "delta write after SQL CT" in msg
 
 
 def test_evaluate_ingest_quiesce_pass():

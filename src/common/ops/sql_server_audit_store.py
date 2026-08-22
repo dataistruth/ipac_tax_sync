@@ -30,6 +30,14 @@ METADATA_TABLE_PREFIX = f"{METADATA_DATABASE}.{METADATA_SCHEMA}"
 
 
 @dataclass(frozen=True)
+class DbWatermark:
+    database_name: str
+    last_version: int
+    client_nm: str = ""
+    checked_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class TableWatermark:
     database_name: str
     schema_name: str
@@ -232,6 +240,27 @@ def open_audit_connection(
         secret_scope_override=secret_scope_override,
     )
     return open_sql_server_connection(config), config
+
+
+def read_db_watermark(conn: Any, database_name: str) -> DbWatermark | None:
+    db = database_name.replace("'", "''")
+    sql = f"""
+SELECT database_name, client_nm, last_version, checked_at
+FROM {METADATA_TABLE_PREFIX}.ct_db_watermark
+WHERE database_name = '{db}';
+""".strip()
+    row = fetch_one_as_dict(conn, sql)
+    if not row:
+        return None
+    checked_at = row.get("checked_at")
+    if isinstance(checked_at, datetime) and checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    return DbWatermark(
+        database_name=str(row["database_name"]),
+        last_version=int(row["last_version"]),
+        client_nm=str(row.get("client_nm") or ""),
+        checked_at=checked_at if isinstance(checked_at, datetime) else None,
+    )
 
 
 def read_table_watermark(

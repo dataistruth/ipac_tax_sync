@@ -32,9 +32,17 @@ dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use
 dbutils.widgets.dropdown("simplified_recon", "true", ["true", "false"], "CT-driven simplified recon (recon_ready only)")
 dbutils.widgets.dropdown(
     "simple_pass_rule",
-    "ingest_quiesce",
-    ["auto", "flow_complete", "row_count", "ct_metrics", "ingest_quiesce", "table_after_ct"],
-    "Pass rule: ingest_quiesce=flow+table; table_after_ct=delta refresh after SQL CT only",
+    "ct_delta_history",
+    [
+        "auto",
+        "flow_complete",
+        "row_count",
+        "ct_metrics",
+        "ingest_quiesce",
+        "table_after_ct",
+        "ct_delta_history",
+    ],
+    "Pass rule: ct_delta_history=SQL CT + delta history (no flow_metrics)",
 )
 dbutils.widgets.dropdown(
     "row_count_only_on_flow_complete",
@@ -45,7 +53,12 @@ dbutils.widgets.dropdown(
 dbutils.widgets.text(
     "table_quiesce_sec",
     "15",
-    "Seconds after CT watermark updated_at before table refresh gate",
+    "Seconds after SQL CT change before Delta write gate",
+)
+dbutils.widgets.text(
+    "row_count_sample_size",
+    "5",
+    "Tables to COUNT_BIG sample when using ct_delta_history",
 )
 dbutils.widgets.dropdown(
     "use_api_update_complete",
@@ -66,7 +79,7 @@ sql_host_override = dbutils.widgets.get("sql_host").strip()
 sql_audit_secret_scope = dbutils.widgets.get("sql_audit_secret_scope").strip() or "scope_ipacs_audit"
 use_sql_server_audit = dbutils.widgets.get("use_sql_server_audit").strip().lower() == "true"
 simplified_recon = dbutils.widgets.get("simplified_recon").strip().lower() == "true"
-simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "ingest_quiesce"
+simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "ct_delta_history"
 row_count_only_on_flow_complete = (
     dbutils.widgets.get("row_count_only_on_flow_complete").strip().lower() == "true"
 )
@@ -74,6 +87,7 @@ use_api_update_complete = (
     dbutils.widgets.get("use_api_update_complete").strip().lower() == "true"
 )
 table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "15")
+row_count_sample_size = int(dbutils.widgets.get("row_count_sample_size").strip() or "5")
 
 print(f"uc_catalog              : {uc_catalog}")
 print(f"metadata_schema         : {metadata_schema}")
@@ -91,6 +105,7 @@ print(f"simple_pass_rule        : {simple_pass_rule}")
 print(f"row_count_only_on_flow_complete : {row_count_only_on_flow_complete}")
 print(f"use_api_update_complete       : {use_api_update_complete}")
 print(f"table_quiesce_sec             : {table_quiesce_sec}")
+print(f"row_count_sample_size         : {row_count_sample_size}")
 
 # COMMAND ----------
 
@@ -206,6 +221,7 @@ while True:
         row_count_only_on_flow_complete=row_count_only_on_flow_complete,
         use_api_update_complete=use_api_update_complete,
         table_quiesce_sec=table_quiesce_sec,
+        row_count_sample_size=row_count_sample_size,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(

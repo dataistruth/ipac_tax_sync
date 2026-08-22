@@ -211,11 +211,14 @@ Continuous job (`pause_status: UNPAUSED`). Widgets:
 | `poll_interval_sec` | `300` | Poll loop interval |
 | `lookback_hours` | `24` | Event log lookback |
 | `simplified_recon` | `true` | CT-driven simplified path (`recon_ready` only) |
-| `simple_pass_rule` | `ingest_quiesce` | Flow metrics + each Delta table refreshed after SQL CT reference time |
-| `table_after_ct` | (option) | Per-table only: Delta write after SQL CT reference (+ quiesce) |
-| `table_quiesce_sec` | `15` | Buffer after SQL CT reference timestamp before Delta write must occur |
+| `simple_pass_rule` | `ct_delta_history` | SQL CT version change + all changed tables: Delta MERGE after CT timestamp; sample COUNT_BIG |
+| `table_after_ct` | (option) | Per-table only: Delta history write after SQL CT reference (+ quiesce) |
+| `table_quiesce_sec` | `15` | Buffer after SQL CT change timestamp before Delta write must occur |
+| `row_count_sample_size` | `5` | For `ct_delta_history`: up to N highest-pending tables get COUNT_BIG validation |
 
-**Delta write timestamp:** For `ingest_quiesce` / `table_after_ct`, recon reads `DESCRIBE HISTORY` on the UC target and uses the latest **MERGE** version/timestamp (fallback: WRITE/UPDATE/DELETE). DLT SETUP rows supply `updateId` for logging only. UC `refresh_information` / `lastModified` are fallbacks when history is empty.
+**Delta write timestamp:** For `ct_delta_history` / `table_after_ct` / `ingest_quiesce`, recon reads `DESCRIBE HISTORY` on the UC target and uses the latest **MERGE** version/timestamp (fallback: WRITE/UPDATE/DELETE). DLT SETUP rows supply `updateId` for logging only. UC metadata fallbacks apply when history is empty.
+
+**`ct_delta_history` (recommended):** Does not use `flow_progress` metrics or flow COMPLETED. When `ct_db_watermark` / table watermarks lag CT head, the DB is on the recon queue; all configured tables with pending CT must show a Delta write after the SQL CT reference time; up to `row_count_sample_size` tables (highest pending first) also require SQL vs Delta row-count match.
 | `row_count_only_on_flow_complete` | `true` | Skip SQL/Delta `COUNT_BIG` until flow/API COMPLETED |
 | `use_api_update_complete` | `true` | Use GET pipeline `latest_update.state=COMPLETED` when event log has no `flow_progress` |
 
