@@ -769,6 +769,54 @@ VALUES (
     conn.commit()
 
 
+def read_recon_batch_detected_at(
+    conn: Any,
+    database_name: str,
+    ct_head_version: int,
+) -> datetime | None:
+    """First audit timestamp when this database+ct_head batch was detected."""
+    db = database_name.replace("'", "''")
+    head = int(ct_head_version)
+    sql = f"""
+SELECT TOP 1 recorded_at
+FROM {METADATA_TABLE_PREFIX}.ingestion_audit_log
+WHERE event_type = 'RECON_BATCH_DETECTED'
+  AND database_name = '{db}'
+  AND JSON_VALUE(detail_json, '$.ct_head_version') = '{head}'
+ORDER BY recorded_at ASC
+""".strip()
+    value = fetch_scalar_value(conn, sql, "recorded_at")
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return None
+
+
+def record_recon_batch_detected(
+    conn: Any,
+    database_name: str,
+    ct_head_version: int,
+    *,
+    client_nm: str = "",
+    pipeline_id: str = "",
+) -> datetime:
+    """Persist first detection time for a DB CT batch (survives poll restarts)."""
+    existing = read_recon_batch_detected_at(conn, database_name, ct_head_version)
+    if existing is not None:
+        return existing
+    detected_at = datetime.now(timezone.utc)
+    write_audit_log(
+        conn,
+        "RECON_BATCH_DETECTED",
+        client_nm=client_nm,
+        database_name=database_name,
+        pipeline_id=pipeline_id,
+        detail={"ct_head_version": int(ct_head_version), "detected_at": detected_at.isoformat()},
+    )
+    return detected_at
+
+
 def resolve_source_ct_for_recon(
     conn: Any,
     client: Any,

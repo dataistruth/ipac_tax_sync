@@ -66,6 +66,8 @@ from common.ops.sql_server_audit_store import (
     read_db_watermark,
     read_recon_event_log_watermarks_sql,
     record_recon_table_result,
+    read_recon_batch_detected_at,
+    record_recon_batch_detected,
     resolve_source_ct_for_recon,
     upsert_db_watermark,
     upsert_table_watermark,
@@ -635,6 +637,78 @@ def _ct_batch_key(database_name: str, ct_head_version: int) -> str:
     return f"{database_name.casefold()}|{ct_head_version}"
 
 
+def resolve_batch_detected_at(
+    conn: Any,
+    database_name: str,
+    ct_head_version: int,
+    batch_detected: dict[str, datetime],
+) -> datetime | None:
+    """In-memory cache first, then SQL audit (first poll that detected this ct_head)."""
+    batch_key = _ct_batch_key(database_name, ct_head_version)
+    cached = batch_detected.get(batch_key)
+    if cached is not None:
+        return cached
+    sql_at = read_recon_batch_detected_at(conn, database_name, ct_head_version)
+    if sql_at is not None:
+        batch_detected[batch_key] = sql_at
+    return sql_at
+
+
+def mark_batch_detected(
+    conn: Any,
+    client: Any,
+    ctx: Any,
+    ct_head_version: int,
+    batch_detected: dict[str, datetime],
+) -> datetime | None:
+    """Record first time this database+ct_head entered the recon queue."""
+    batch_key = _ct_batch_key(client.src_db_nm, ct_head_version)
+    if batch_key in batch_detected:
+        return batch_detected[batch_key]
+    detected_at = record_recon_batch_detected(
+        conn,
+        client.src_db_nm,
+        ct_head_version,
+        client_nm=client.client_nm,
+        pipeline_id=ctx.pipeline_id or "",
+    )
+    batch_detected[batch_key] = detected_at
+    return detected_at
+
+
+def clear_recon_batch_state(
+    conn: Any,
+    client: Any,
+    ctx: Any,
+    ct_head_version: int,
+    batch_detected: dict[str, datetime],
+    verified_cache: dict[str, RowCountVerified],
+) -> None:
+    """
+    After PASS: drop in-memory batch timer and row-count cache for this ct_head.
+    Next CT activity (new ct_head) starts a fresh detection via mark_batch_detected.
+    """
+    batch_key = _ct_batch_key(client.src_db_nm, ct_head_version)
+    if batch_key in batch_detected:
+        batch_detected.pop(batch_key, None)
+    db_prefix = client.src_db_nm.casefold() + "|"
+    head_suffix = f"|{int(ct_head_version)}"
+    for key in list(verified_cache.keys()):
+        if key.startswith(db_prefix) and key.endswith(head_suffix):
+            verified_cache.pop(key, None)
+    try:
+        write_audit_log(
+            conn,
+            "RECON_BATCH_COMPLETED",
+            client_nm=client.client_nm,
+            database_name=client.src_db_nm,
+            pipeline_id=ctx.pipeline_id or "",
+            detail={"ct_head_version": int(ct_head_version)},
+        )
+    except Exception as exc:
+        print(f"[recon] WARN RECON_BATCH_COMPLETED audit: {exc}")
+
+
 @dataclass(frozen=True)
 class RowCountVerified:
     sql_count: int
@@ -1123,20 +1197,30 @@ def run_simplified_pipeline_recon(
 
     log_db_ct_recon_queue(conn, client, pending_tables)
 
+    batch_detected = ct_batch_detected_at if ct_batch_detected_at is not None else {}
+    pending_by_table_early: dict[str, PendingCtTable] = {}
+    if pending_tables and pending_tables[0].ct_head_version is not None:
+        pending_by_table_early = {p.table_name.casefold(): p for p in pending_tables}
+        detected_at = mark_batch_detected(
+            conn,
+            client,
+            ctx,
+            pending_tables[0].ct_head_version,
+            batch_detected,
+        )
+        if detected_at is not None:
+            print(
+                f"[recon] {ctx.pipeline_key}: CT batch tracking "
+                f"ct_head={pending_tables[0].ct_head_version} "
+                f"detected_at={detected_at.isoformat()}"
+            )
+
     verified_cache = (
         row_count_verified_cache if row_count_verified_cache is not None else {}
     )
-    batch_detected = ct_batch_detected_at if ct_batch_detected_at is not None else {}
-    pending_by_table = {p.table_name.casefold(): p for p in pending_tables}
-    if pending_tables and pending_tables[0].ct_head_version is not None:
-        batch_key = _ct_batch_key(client.src_db_nm, pending_tables[0].ct_head_version)
-        if batch_key not in batch_detected:
-            batch_detected[batch_key] = datetime.now(timezone.utc)
-            print(
-                f"[recon] {ctx.pipeline_key}: CT batch detected "
-                f"ct_head={pending_tables[0].ct_head_version} at "
-                f"{batch_detected[batch_key].isoformat()}"
-            )
+    pending_by_table = pending_by_table_early or {
+        p.table_name.casefold(): p for p in pending_tables
+    }
 
     row_count_sample: set[str] = set()
     if pass_rule == "ct_delta_history":
@@ -1533,12 +1617,13 @@ def run_simplified_pipeline_recon(
             )
         else:
             completed_at = datetime.now(timezone.utc)
-            batch_key = (
-                _ct_batch_key(client.src_db_nm, ct_head_version)
+            detected_at = (
+                resolve_batch_detected_at(
+                    conn, client.src_db_nm, ct_head_version, batch_detected
+                )
                 if ct_head_version is not None
-                else ""
+                else None
             )
-            detected_at = batch_detected.get(batch_key) if batch_key else None
             total_ingestion_sec: int | None = None
             if detected_at is not None:
                 total_ingestion_sec = max(
@@ -1567,8 +1652,6 @@ def run_simplified_pipeline_recon(
                 )
                 written = 0
             if written:
-                if batch_key:
-                    batch_detected.pop(batch_key, None)
                 for outcome in batch_pass:
                     upsert_table_watermark(
                         conn,
@@ -1585,6 +1668,14 @@ def run_simplified_pipeline_recon(
                         client.src_db_nm,
                         ct_head_version,
                         client_nm=client.client_nm,
+                    )
+                    clear_recon_batch_state(
+                        conn,
+                        client,
+                        ctx,
+                        ct_head_version,
+                        batch_detected,
+                        verified_cache,
                     )
                 print(
                     f"[recon] PASS {ctx.pipeline_key} database={client.src_db_nm} "
@@ -1989,6 +2080,8 @@ def run_all_pipeline_recon(
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
     row_count_parallel_workers: int = 5,
+    ct_batch_detected_at: dict[str, datetime] | None = None,
+    row_count_verified_cache: dict[str, RowCountVerified] | None = None,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     if simplified_recon and not use_sql_server_audit:
@@ -2045,8 +2138,10 @@ def run_all_pipeline_recon(
         )
 
     ct_head_cache: dict[str, int] = {}
-    row_count_verified_cache: dict[str, RowCountVerified] = {}
-    ct_batch_detected_at: dict[str, datetime] = {}
+    if ct_batch_detected_at is None:
+        ct_batch_detected_at = {}
+    if row_count_verified_cache is None:
+        row_count_verified_cache = {}
 
     for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
@@ -2078,6 +2173,23 @@ def run_all_pipeline_recon(
                 ct_pending_probe = discover_pending_ct_tables(
                     probe_conn, ipac_client, src_schema, active_tables
                 )
+                if (
+                    ct_pending_probe
+                    and ct_pending_probe[0].ct_head_version is not None
+                ):
+                    detected = mark_batch_detected(
+                        probe_conn,
+                        ipac_client,
+                        ctx,
+                        ct_pending_probe[0].ct_head_version,
+                        ct_batch_detected_at,
+                    )
+                    if detected is not None:
+                        print(
+                            f"[recon] {ctx.pipeline_key}: DB CT batch queue "
+                            f"ct_head={ct_pending_probe[0].ct_head_version} "
+                            f"first_detected={detected.isoformat()}"
+                        )
                 probe_conn.close()
             except Exception as exc:
                 print(f"{ctx.pipeline_key}: WARN CT probe failed: {exc}")

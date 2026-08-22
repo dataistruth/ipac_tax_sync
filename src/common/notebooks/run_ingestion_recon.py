@@ -56,6 +56,7 @@ print(f"pass_rule (fixed)            : {SIMPLE_PASS_RULE}")
 
 import sys
 import time
+from datetime import datetime
 
 nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 repo_root = "/Workspace" + nb_path.rsplit("/src/", 1)[0]
@@ -69,6 +70,7 @@ from common.ops.ingestion_recon_ops import (
     build_contexts_for_client,
     load_pipeline_names,
     run_all_pipeline_recon,
+    RowCountVerified,
 )
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
 from common.ops.recon_store import ensure_recon_ready_table
@@ -101,6 +103,9 @@ print(f"Monitoring {len(contexts)} pipeline(s) for {len(client_names)} client(s)
 # COMMAND ----------
 
 iteration = 0
+ct_batch_detected_at: dict[str, datetime] = {}
+row_count_verified_cache: dict[str, RowCountVerified] = {}
+
 while True:
     iteration += 1
     print(f"--- recon poll {iteration} ---")
@@ -120,6 +125,8 @@ while True:
         table_quiesce_sec=table_quiesce_sec,
         row_count_sample_size=row_count_sample_size,
         row_count_parallel_workers=row_count_parallel_workers,
+        ct_batch_detected_at=ct_batch_detected_at,
+        row_count_verified_cache=row_count_verified_cache,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(

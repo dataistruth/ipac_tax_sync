@@ -173,7 +173,7 @@ Example: `dev7.ipac_metadata.ingest_events_p_iPC_2025_Dev7_15347_1`
 | `tables_json` | JSON list of all tables in the batch (names, pending CT, counts, delta version) |
 | `ct_watermark_before` | `ct_db_watermark.last_version` at recon start |
 | `ct_head_version` | `CHANGE_TRACKING_CURRENT_VERSION()` at PASS |
-| `total_ingestion_sec` | Seconds from first CT batch detection (`ct_head`) to `recon_ready` insert |
+| `total_ingestion_sec` | Seconds from first poll that detected this `ct_head` until `recon_ready`; resets after PASS when a new `ct_head` is detected |
 | `pipeline_id`, `update_id` | Pipeline update idempotency |
 | `flow_name` | `__database_recon__` for DB-level rows |
 | `ingest_change_rows`, `source_change_rows` | Summed across tables in batch |
