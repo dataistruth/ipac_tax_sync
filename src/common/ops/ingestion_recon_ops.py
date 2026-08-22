@@ -627,6 +627,21 @@ def evaluate_table_refresh_after_sql_ct(
     )
 
 
+def _row_count_verified_key(database_name: str, table_nm: str, ct_head_version: int) -> str:
+    return f"{database_name.casefold()}|{table_nm.casefold()}|{ct_head_version}"
+
+
+def _ct_batch_key(database_name: str, ct_head_version: int) -> str:
+    return f"{database_name.casefold()}|{ct_head_version}"
+
+
+@dataclass(frozen=True)
+class RowCountVerified:
+    sql_count: int
+    delta_count: int
+    ct_head_version: int
+
+
 def _parallel_delta_row_count(
     spark,
     catalog: str,
@@ -652,41 +667,71 @@ def prefetch_row_count_samples(
     src_schema: str,
     table_names: list[str],
     conn: Any,
+    pending_by_table: dict[str, PendingCtTable],
+    database_name: str,
+    verified_cache: dict[str, RowCountVerified] | None = None,
     *,
     max_delta_workers: int = 5,
 ) -> dict[str, tuple[int | None, int | None]]:
     """
-    Sample row counts: one SQL UNION ALL COUNT(*), Delta counts in parallel.
-
-    SQL Server counts are fast — single query. UC streaming COUNT(1) runs in
-    parallel when max_delta_workers > 1.
+    Sample row counts: one SQL UNION COUNT(*) where needed; Delta COUNT only for
+    tables not already verified at this ct_head (sql_count == delta_count).
     """
     if not table_names:
         return {}
 
-    keys = {t.casefold() for t in table_names}
-    sql_counts = fetch_sql_row_counts_batch(conn, src_schema, table_names)
-    delta_counts: dict[str, int | None] = {k: None for k in keys}
-    workers = max(1, min(max_delta_workers, len(table_names)))
+    verified = verified_cache if verified_cache is not None else {}
+    result: dict[str, tuple[int | None, int | None]] = {}
+    need_count_names: list[str] = []
+    skipped_verified = 0
 
+    for table_nm in table_names:
+        key = table_nm.casefold()
+        probe = pending_by_table.get(key)
+        if probe is None:
+            need_count_names.append(table_nm)
+            continue
+        vk = _row_count_verified_key(database_name, table_nm, probe.ct_head_version)
+        entry = verified.get(vk)
+        if entry is not None and entry.ct_head_version == probe.ct_head_version:
+            result[key] = (entry.sql_count, entry.delta_count)
+            skipped_verified += 1
+        else:
+            need_count_names.append(table_nm)
+
+    if skipped_verified:
+        print(
+            f"[recon] row_count cache hit: {skipped_verified}/{len(table_names)} "
+            "table(s) skip SQL+Delta recount"
+        )
+
+    if not need_count_names:
+        return result
+
+    keys_needed = {t.casefold() for t in need_count_names}
+    sql_counts = fetch_sql_row_counts_batch(conn, src_schema, need_count_names)
+    delta_counts: dict[str, int | None] = {k: None for k in keys_needed}
+
+    workers = max(1, min(max_delta_workers, len(need_count_names)))
     if workers <= 1:
-        for table_nm in table_names:
+        for table_nm in need_count_names:
             key, value = _parallel_delta_row_count(spark, catalog, ctx, table_nm)
             delta_counts[key] = value
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
                 pool.submit(_parallel_delta_row_count, spark, catalog, ctx, table_nm)
-                for table_nm in table_names
+                for table_nm in need_count_names
             ]
             for fut in as_completed(futures):
                 key, value = fut.result()
                 delta_counts[key] = value
 
-    return {
-        k: (sql_counts.get(k), delta_counts.get(k))
-        for k in keys
-    }
+    for table_nm in need_count_names:
+        key = table_nm.casefold()
+        result[key] = (sql_counts.get(key), delta_counts.get(key))
+
+    return result
 
 
 def select_row_count_sample_tables(
@@ -853,6 +898,7 @@ def build_database_recon_ready_row(
     ct_watermark_before: int | None,
     ct_head_version: int | None,
     completed_at: datetime,
+    total_ingestion_sec: int | None = None,
 ) -> ReconReadyRow:
     source_total = sum(
         o.probe.pending.metric_for_recon_type(o.recon_type) for o in outcomes
@@ -875,6 +921,7 @@ def build_database_recon_ready_row(
         tables_json=build_database_tables_json(outcomes),
         ct_watermark_before=ct_watermark_before,
         ct_head_version=ct_head_version,
+        total_ingestion_sec=total_ingestion_sec,
     )
 
 
@@ -989,6 +1036,8 @@ def run_simplified_pipeline_recon(
     use_api_update_complete: bool = True,
     event_log_watermark: ReconEventLogWatermark | None = None,
     ct_head_cache: dict[str, int] | None = None,
+    row_count_verified_cache: dict[str, RowCountVerified] | None = None,
+    ct_batch_detected_at: dict[str, datetime] | None = None,
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
     row_count_parallel_workers: int = 5,
@@ -1074,6 +1123,21 @@ def run_simplified_pipeline_recon(
 
     log_db_ct_recon_queue(conn, client, pending_tables)
 
+    verified_cache = (
+        row_count_verified_cache if row_count_verified_cache is not None else {}
+    )
+    batch_detected = ct_batch_detected_at if ct_batch_detected_at is not None else {}
+    pending_by_table = {p.table_name.casefold(): p for p in pending_tables}
+    if pending_tables and pending_tables[0].ct_head_version is not None:
+        batch_key = _ct_batch_key(client.src_db_nm, pending_tables[0].ct_head_version)
+        if batch_key not in batch_detected:
+            batch_detected[batch_key] = datetime.now(timezone.utc)
+            print(
+                f"[recon] {ctx.pipeline_key}: CT batch detected "
+                f"ct_head={pending_tables[0].ct_head_version} at "
+                f"{batch_detected[batch_key].isoformat()}"
+            )
+
     row_count_sample: set[str] = set()
     if pass_rule == "ct_delta_history":
         row_count_sample = select_row_count_sample_tables(
@@ -1102,10 +1166,27 @@ def run_simplified_pipeline_recon(
                 src_schema,
                 sample_names,
                 conn,
+                pending_by_table,
+                client.src_db_nm,
+                verified_cache,
                 max_delta_workers=row_count_parallel_workers,
             )
             prefetch_elapsed = time.perf_counter() - prefetch_start
-            delta_workers = max(1, min(row_count_parallel_workers, len(sample_names)))
+            delta_workers = max(
+                1,
+                min(
+                    row_count_parallel_workers,
+                    len(sample_names) - sum(
+                        1
+                        for n in sample_names
+                        if _row_count_verified_key(
+                            client.src_db_nm,
+                            n,
+                            pending_by_table[n.casefold()].ct_head_version,
+                        ) in verified_cache
+                    ),
+                ),
+            )
             print(
                 f"[recon] {ctx.pipeline_key}: row_count prefetch "
                 f"sql=UNION({len(sample_names)}) delta_workers={delta_workers} "
@@ -1269,6 +1350,13 @@ def run_simplified_pipeline_recon(
                 delta_count,
                 require_row_count=in_sample,
             )
+            if in_sample and status == "PASS" and sql_count is not None and delta_count is not None:
+                vk = _row_count_verified_key(
+                    client.src_db_nm, table_nm, probe.ct_head_version
+                )
+                verified_cache[vk] = RowCountVerified(
+                    sql_count, delta_count, probe.ct_head_version
+                )
         elif pass_rule in ("auto", "flow_complete") and flow_complete:
             if summary is not None and summary.final_flow_status == "COMPLETED":
                 status, message = "PASS", "flow_progress COMPLETED in event log"
@@ -1445,6 +1533,17 @@ def run_simplified_pipeline_recon(
             )
         else:
             completed_at = datetime.now(timezone.utc)
+            batch_key = (
+                _ct_batch_key(client.src_db_nm, ct_head_version)
+                if ct_head_version is not None
+                else ""
+            )
+            detected_at = batch_detected.get(batch_key) if batch_key else None
+            total_ingestion_sec: int | None = None
+            if detected_at is not None:
+                total_ingestion_sec = max(
+                    0, int((completed_at - detected_at).total_seconds())
+                )
             ready = build_database_recon_ready_row(
                 client,
                 ctx,
@@ -1454,6 +1553,7 @@ def run_simplified_pipeline_recon(
                 ct_watermark_before=db_watermark_before,
                 ct_head_version=ct_head_version,
                 completed_at=completed_at,
+                total_ingestion_sec=total_ingestion_sec,
             )
             try:
                 written = write_recon_ready_rows(
@@ -1467,6 +1567,8 @@ def run_simplified_pipeline_recon(
                 )
                 written = 0
             if written:
+                if batch_key:
+                    batch_detected.pop(batch_key, None)
                 for outcome in batch_pass:
                     upsert_table_watermark(
                         conn,
@@ -1487,6 +1589,7 @@ def run_simplified_pipeline_recon(
                 print(
                     f"[recon] PASS {ctx.pipeline_key} database={client.src_db_nm} "
                     f"tables={len(batch_pass)} ct_head={ct_head_version} "
+                    f"total_ingestion_sec={total_ingestion_sec} "
                     f"→ recon_ready written (1 row)"
                 )
 
@@ -1942,6 +2045,8 @@ def run_all_pipeline_recon(
         )
 
     ct_head_cache: dict[str, int] = {}
+    row_count_verified_cache: dict[str, RowCountVerified] = {}
+    ct_batch_detected_at: dict[str, datetime] = {}
 
     for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
@@ -2064,6 +2169,8 @@ def run_all_pipeline_recon(
                 use_api_update_complete=use_api_update_complete,
                 event_log_watermark=watermark,
                 ct_head_cache=ct_head_cache,
+                row_count_verified_cache=row_count_verified_cache,
+                ct_batch_detected_at=ct_batch_detected_at,
                 table_quiesce_sec=table_quiesce_sec,
                 row_count_sample_size=row_count_sample_size,
                 row_count_parallel_workers=row_count_parallel_workers,

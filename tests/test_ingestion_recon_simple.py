@@ -102,6 +102,23 @@ def test_prefetch_row_count_samples_parallel():
     ctx = MagicMock()
     ctx.tables = []
     conn = MagicMock()
+    probe = PendingCtTable(
+        schema_name="dbo",
+        table_name="T1",
+        watermark_before=1,
+        ct_head_version=10,
+        pending=CtPendingCounts(inserts=5),
+    )
+    pending_by_table = {
+        "t1": probe,
+        "t2": PendingCtTable(
+            schema_name="dbo",
+            table_name="T2",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=5),
+        ),
+    }
 
     with patch(
         "common.ops.ingestion_recon_ops.fetch_sql_row_counts_batch",
@@ -120,12 +137,56 @@ def test_prefetch_row_count_samples_parallel():
             "dbo",
             ["T1", "T2"],
             conn,
+            pending_by_table,
+            "test_db",
+            {},
             max_delta_workers=4,
         )
 
     assert result == {"t1": (10, 10), "t2": (20, 21)}
     sql_mock.assert_called_once_with(conn, "dbo", ["T1", "T2"])
     assert delta_mock.call_count == 2
+
+
+def test_prefetch_skips_verified_row_counts():
+    ctx = MagicMock()
+    ctx.tables = []
+    conn = MagicMock()
+    probe = PendingCtTable(
+        schema_name="dbo",
+        table_name="T1",
+        watermark_before=1,
+        ct_head_version=10,
+        pending=CtPendingCounts(inserts=5),
+    )
+    pending_by_table = {"t1": probe}
+    from common.ops.ingestion_recon_ops import RowCountVerified
+
+    verified = {
+        "test_db|t1|10": RowCountVerified(100, 100, 10),
+    }
+
+    with patch(
+        "common.ops.ingestion_recon_ops.fetch_sql_row_counts_batch",
+    ) as sql_mock, patch(
+        "common.ops.ingestion_recon_ops._parallel_delta_row_count",
+    ) as delta_mock:
+        result = prefetch_row_count_samples(
+            MagicMock(),
+            "dev7",
+            ctx,
+            "dbo",
+            ["T1"],
+            conn,
+            pending_by_table,
+            "test_db",
+            verified,
+            max_delta_workers=4,
+        )
+
+    assert result == {"t1": (100, 100)}
+    sql_mock.assert_not_called()
+    delta_mock.assert_not_called()
 
 
 def test_fetch_sql_row_counts_batch_union():

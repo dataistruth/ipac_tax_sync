@@ -128,6 +128,7 @@ class ReconReadyRow:
     tables_json: str = ""
     ct_watermark_before: int | None = None
     ct_head_version: int | None = None
+    total_ingestion_sec: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -148,6 +149,7 @@ class ReconReadyRow:
             "tables_json": self.tables_json or "",
             "ct_watermark_before": self.ct_watermark_before,
             "ct_head_version": self.ct_head_version,
+            "total_ingestion_sec": self.total_ingestion_sec,
         }
 
 
@@ -392,7 +394,8 @@ CREATE TABLE IF NOT EXISTS {table} (
   database_name STRING COMMENT 'SQL Server database name',
   tables_json STRING COMMENT 'JSON array of reconciled tables in this batch',
   ct_watermark_before BIGINT COMMENT 'ct_db_watermark at recon start',
-  ct_head_version BIGINT COMMENT 'CHANGE_TRACKING_CURRENT_VERSION at PASS'
+  ct_head_version BIGINT COMMENT 'CHANGE_TRACKING_CURRENT_VERSION at PASS',
+  total_ingestion_sec BIGINT COMMENT 'Seconds from CT batch detected to recon_ready PASS'
 )
 USING DELTA
 COMMENT 'PASS rows only — gate for ipac-sdt-calc'
@@ -507,6 +510,7 @@ def _recon_ready_spark_schema():
             StructField("tables_json", StringType(), True),
             StructField("ct_watermark_before", LongType(), True),
             StructField("ct_head_version", LongType(), True),
+            StructField("total_ingestion_sec", LongType(), True),
         ]
     )
 
@@ -519,6 +523,7 @@ def _evolve_recon_ready_table(spark, catalog: str, schema: str) -> None:
         "tables_json STRING",
         "ct_watermark_before BIGINT",
         "ct_head_version BIGINT",
+        "total_ingestion_sec BIGINT",
     ):
         try:
             spark.sql(f"ALTER TABLE {table} ADD COLUMNS ({col_def})")
