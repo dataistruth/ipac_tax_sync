@@ -51,6 +51,67 @@ def _sql_escape(value: str) -> str:
     return value.replace("'", "''")
 
 
+def ingestion_recon_event_extract_sql(
+    pipeline_id: str,
+    lookback_hours: int = 24,
+    since_timestamp: datetime | None = None,
+) -> str:
+    """flow_progress + operation_progress METRICS for Lakeflow Connect recon."""
+    pid = _sql_escape(pipeline_id.strip())
+    if since_timestamp is not None:
+        ts = since_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        time_filter = f"AND timestamp > timestamp '{ts}'"
+    else:
+        time_filter = f"AND timestamp >= current_timestamp() - INTERVAL {int(lookback_hours)} HOURS"
+    return f"""
+SELECT
+    id AS event_id,
+    origin.pipeline_id AS pipeline_id,
+    origin.pipeline_name AS pipeline_name,
+    origin.update_id AS update_id,
+    origin.flow_name AS flow_name,
+    event_type,
+    COALESCE(
+        NULLIF(TRIM(origin.dataset_name), ''),
+        NULLIF(TRIM(element_at(split(regexp_replace(origin.flow_name, '(?i)_(cdc|snapshot)_flow$', ''), '[.]'), -1)), ''),
+        NULLIF(TRIM(element_at(split(regexp_replace(origin.flow_name, '(?i)_flow$', ''), '[.]'), -1)), '')
+    ) AS table_name,
+    timestamp AS event_timestamp,
+    COALESCE(
+        details:flow_progress:status::STRING,
+        details:operation_progress:status::STRING,
+        ''
+    ) AS flow_status,
+    COALESCE(
+        TRY_CAST(details:flow_progress:metrics:num_output_rows AS BIGINT),
+        TRY_CAST(details:operation_progress:metrics:num_output_rows AS BIGINT),
+        TRY_CAST(details:operation_progress:metrics:num_records_processed AS BIGINT),
+        0
+    ) AS output_rows,
+    COALESCE(
+        TRY_CAST(details:flow_progress:metrics:num_upserted_rows AS BIGINT),
+        TRY_CAST(details:operation_progress:metrics:num_upserted_rows AS BIGINT),
+        TRY_CAST(details:operation_progress:metrics:num_records_processed AS BIGINT),
+        0
+    ) AS rows_upserted,
+    COALESCE(
+        TRY_CAST(details:flow_progress:metrics:num_deleted_rows AS BIGINT),
+        TRY_CAST(details:operation_progress:metrics:num_deleted_rows AS BIGINT),
+        0
+    ) AS rows_deleted,
+    COALESCE(
+        TRY_CAST(details:flow_progress:metrics:num_output_bytes AS BIGINT),
+        TRY_CAST(details:operation_progress:metrics:num_output_bytes AS BIGINT),
+        0
+    ) AS output_bytes
+FROM event_log('{pid}')
+WHERE level = 'METRICS'
+  AND event_type IN ('flow_progress', 'operation_progress')
+  AND origin.flow_name IS NOT NULL
+  {time_filter}
+""".strip()
+
+
 def flow_progress_extract_sql(
     pipeline_id: str,
     lookback_hours: int = 24,

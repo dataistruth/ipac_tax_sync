@@ -12,8 +12,9 @@ from common.ops.lakeflow_event_ops import (
     aggregate_flow_metrics,
     build_pipeline_recon_context,
     evaluate_recon,
-    flow_progress_extract_sql,
+    ingestion_recon_event_extract_sql,
     parse_flow_progress_event,
+    resolve_table_from_flow_name,
     TableReconConfig,
 )
 from common.ops.pipeline_job_ops import (
@@ -242,10 +243,39 @@ def _flow_metrics_for_table(
             continue
         if not ctx.pipeline_id and parsed.pipeline_id:
             ctx.pipeline_id = parsed.pipeline_id
-        if (parsed.table_name or "").casefold() == target:
-            metrics.append(parsed)
+        resolved = (
+            parsed.table_name
+            or resolve_table_from_flow_name(parsed.flow_name, ctx.tables)
+        )
+        if (resolved or "").casefold() != target:
+            continue
+        if resolved and not parsed.table_name:
+            parsed.table_name = resolved
+        metrics.append(parsed)
     return metrics
 
+
+def _log_event_log_table_hints(
+    pipeline_rows: list[dict[str, Any]],
+    ctx: Any,
+    table_nm: str,
+    pipeline_key: str,
+) -> None:
+    """One-line diagnostic when no metrics matched the configured table."""
+    if not pipeline_rows:
+        print(f"[recon] {pipeline_key} {table_nm}: event_log has no METRICS rows in window")
+        return
+    hints: list[str] = []
+    for row in pipeline_rows[:8]:
+        flow = str(row.get("flow_name") or "")
+        evt = str(row.get("event_type") or "")
+        hint_table = resolve_table_from_flow_name(flow, ctx.tables) or str(row.get("table_name") or "")
+        ups = row.get("rows_upserted") or row.get("output_rows") or 0
+        hints.append(f"{evt}:{flow}→{hint_table}(ups={ups})")
+    print(
+        f"[recon] {pipeline_key} {table_nm}: no metrics matched; "
+        f"event_log sample: {'; '.join(hints)}"
+    )
 
 def _recon_type_for_table(ctx: Any, table_nm: str) -> int:
     target = table_nm.casefold()
@@ -297,6 +327,10 @@ def fetch_streaming_table_refresh_info(
     """
     ref = resolve_uc_table_ref(spark, catalog, schema, table_nm)
     if ref is None:
+        print(
+            f"[recon] WARN resolve_uc_table_ref failed "
+            f"catalog={catalog} schema={schema} table={table_nm}"
+        )
         return None
 
     try:
@@ -313,8 +347,48 @@ def fetch_streaming_table_refresh_info(
                 "last_refresh_type": str(refresh.get("last_refresh_type") or ""),
                 "source": "refresh_information",
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[recon] WARN refresh_information JSON for {ref.name}: {exc}")
+
+    try:
+        detail_row = spark.sql(f"DESCRIBE DETAIL {ref.quoted_name}").collect()[0]
+        detail = detail_row.asDict() if hasattr(detail_row, "asDict") else {}
+        last_at = _parse_refresh_timestamp(detail.get("lastModified"))
+        if last_at is not None:
+            return {
+                "table": ref.name,
+                "last_refreshed_at": last_at,
+                "latest_refresh_status": "",
+                "last_refresh_type": "lastModified",
+                "source": "describe_detail",
+            }
+    except Exception as exc:
+        print(f"[recon] WARN DESCRIBE DETAIL for {ref.name}: {exc}")
+
+    try:
+        esc_catalog = catalog.replace("`", "``")
+        esc_schema = ref.schema.replace("`", "``")
+        esc_table = ref.table.replace("`", "``")
+        row = spark.sql(
+            f"""
+SELECT last_altered
+FROM `{esc_catalog}`.information_schema.tables
+WHERE table_schema = '{esc_schema.replace("'", "''")}'
+  AND table_name = '{esc_table.replace("'", "''")}'
+""".strip()
+        ).first()
+        if row is not None:
+            last_at = _parse_refresh_timestamp(row.last_altered)
+            if last_at is not None:
+                return {
+                    "table": ref.name,
+                    "last_refreshed_at": last_at,
+                    "latest_refresh_status": "",
+                    "last_refresh_type": "last_altered",
+                    "source": "information_schema",
+                }
+    except Exception as exc:
+        print(f"[recon] WARN information_schema.tables for {ref.name}: {exc}")
 
     try:
         for row in spark.sql(f"DESCRIBE TABLE EXTENDED {ref.quoted_name}").collect():
@@ -330,7 +404,7 @@ def fetch_streaming_table_refresh_info(
                         "source": "describe_extended",
                     }
     except Exception as exc:
-        print(f"[recon] WARN table refresh metadata failed for {ref.name}: {exc}")
+        print(f"[recon] WARN DESCRIBE TABLE EXTENDED for {ref.name}: {exc}")
     return None
 
 
@@ -646,6 +720,9 @@ def run_simplified_pipeline_recon(
                 )
 
         if pass_rule == "ingest_quiesce":
+            metrics_positive, _, _, _ = _flow_metrics_positive(metrics)
+            if not metrics_positive:
+                _log_event_log_table_hints(pipeline_rows, ctx, table_nm, ctx.pipeline_key)
             status, message = evaluate_ingest_quiesce_recon(
                 metrics,
                 probe.pending,
@@ -841,7 +918,7 @@ def fetch_flow_progress_rows(
     lookback_hours: int,
     since_timestamp: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    sql = flow_progress_extract_sql(
+    sql = ingestion_recon_event_extract_sql(
         pipeline_id,
         lookback_hours=lookback_hours,
         since_timestamp=since_timestamp,

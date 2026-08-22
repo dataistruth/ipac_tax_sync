@@ -93,10 +93,9 @@ def fetch_latest_pending_ct_commit_time(
         else ""
     )
     sql = f"""
-SELECT MAX(t.commit_time) AS latest_ct_commit_at
+SELECT MAX(ct.commit_time) AS latest_ct_commit_at
 FROM CHANGETABLE(CHANGES {schema}.{table}, {int(watermark_before)}) AS chg
 INNER JOIN sys.dm_tran_commit_table AS ct ON ct.commit_ts = chg.SYS_CHANGE_VERSION
-INNER JOIN sys.dm_tran_commit_time AS t ON t.commit_time = ct.commit_time
 WHERE chg.SYS_CHANGE_OPERATION IN ('I', 'U', 'D'){upper};
 """.strip()
     value = fetch_scalar(conn, sql, "latest_ct_commit_at")
@@ -149,8 +148,15 @@ def discover_pending_ct_tables(
             latest_ct_commit_at = fetch_latest_pending_ct_commit_time(
                 conn, src_schema, table_nm, watermark_before, ct_head
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[recon] WARN latest CT commit time failed for {table_nm}: {exc}"
+            )
+        if latest_ct_commit_at is None and watermark_before > 0:
+            print(
+                f"[recon] WARN {table_nm}: no CT commit_time from CHANGETABLE "
+                f"(watermark_before={watermark_before}); using watermark updated_at"
+            )
         sql_ct_reference_at = _sql_ct_reference_timestamp(
             watermark_updated_at, latest_ct_commit_at
         )
