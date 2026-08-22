@@ -7,6 +7,7 @@ from common.ops.ingestion_recon_ops import (
     evaluate_ingest_quiesce_recon,
     evaluate_simple_recon,
     evaluate_table_refresh_after_sql_ct,
+    summarize_delta_history_refresh,
 )
 from common.ops.lakeflow_event_ops import FlowSummaryRow
 from common.ops.recon_store import FlowMetricsRow
@@ -36,6 +37,56 @@ def _summary(upserted: int = 1, deleted: int = 0) -> FlowSummaryRow:
         first_event_time=now,
         last_event_time=now,
     )
+
+
+def test_summarize_delta_history_refresh_prefers_merge():
+    rows = [
+        {
+            "version": 22,
+            "timestamp": "2026-08-22T01:47:01.000+00:00",
+            "operation": "DLT SETUP",
+            "operationParameters": '{"updateId":"407beb35-a183-4040-adb5-4ef98a818198"}',
+        },
+        {
+            "version": 21,
+            "timestamp": "2026-08-22T01:19:49.000+00:00",
+            "operation": "DLT SETUP",
+            "operationParameters": '{"updateId":"baac7ad6-42e2-4ac8-89f3-a2ec18b5729d"}',
+        },
+        {
+            "version": 20,
+            "timestamp": "2026-08-22T00:48:29.000+00:00",
+            "operation": "MERGE",
+            "operationParameters": "{}",
+        },
+    ]
+    info = summarize_delta_history_refresh(rows)
+    assert info is not None
+    assert info["source"] == "delta_history"
+    assert info["delta_version"] == 20
+    assert info["latest_refresh_status"] == "MERGE"
+    assert info["last_merge_version"] == 20
+    assert info["last_dlt_setup_version"] == 22
+    assert info["dlt_update_id"] == "407beb35-a183-4040-adb5-4ef98a818198"
+
+
+def test_evaluate_table_refresh_after_sql_ct_pass_with_delta_history():
+    merge_at = datetime(2026, 8, 22, 0, 48, 29, tzinfo=timezone.utc)
+    sql_ct = datetime(2026, 8, 21, 22, 59, 28, tzinfo=timezone.utc)
+    refresh = {
+        "table": "dev7.schema.K1Input_Snapshot",
+        "last_refreshed_at": merge_at,
+        "latest_refresh_status": "MERGE",
+        "source": "delta_history",
+        "delta_version": 20,
+    }
+    status, msg = evaluate_table_refresh_after_sql_ct(
+        refresh,
+        sql_ct,
+        quiesce_sec=15,
+    )
+    assert status == "PASS"
+    assert "delta_version=20" in msg
 
 
 def test_evaluate_table_refresh_after_sql_ct_pass():

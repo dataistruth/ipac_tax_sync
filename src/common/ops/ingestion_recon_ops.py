@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -41,6 +42,7 @@ from common.ops.recon_store import (
     qualified_table,
     resolve_uc_table_ref,
     is_streaming_uc_table,
+    UcTableRef,
     read_recon_event_log_watermarks,
     RECON_READY_TABLE,
     write_flow_metrics_rows,
@@ -313,17 +315,158 @@ def _parse_refresh_timestamp(value: Any) -> datetime | None:
         return None
 
 
+def _spark_error_summary(exc: BaseException) -> str:
+    text = str(exc).strip()
+    if "PARSE_SYNTAX_ERROR" in text or "ParseException" in text:
+        return "SQL syntax not supported on this runtime"
+    first = text.split("\n", 1)[0]
+    return first[:200] if len(first) > 200 else first
+
+
+DELTA_DATA_WRITE_OPERATIONS = frozenset(
+    {"MERGE", "WRITE", "UPDATE", "DELETE", "STREAMING UPDATE", "INSERT"}
+)
+
+
+def _extract_update_id_from_history_params(params: Any) -> str:
+    if params is None:
+        return ""
+    if isinstance(params, dict):
+        return str(params.get("updateId") or params.get("update_id") or "")
+    text = str(params).strip()
+    if not text:
+        return ""
+    if text.startswith("{") or text.startswith("["):
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return str(data.get("updateId") or data.get("update_id") or "")
+        except json.JSONDecodeError:
+            pass
+    match = re.search(r"updateId[\"']?\s*[:=]\s*[\"']?([a-f0-9-]+)", text, re.I)
+    return match.group(1) if match else ""
+
+
+def _history_version_key(row: dict[str, Any]) -> int:
+    try:
+        return int(row.get("version"))
+    except (TypeError, ValueError):
+        return -1
+
+
+def summarize_delta_history_refresh(
+    history_rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """
+  From DESCRIBE HISTORY rows, pick latest MERGE (preferred) or other data-write op.
+
+  Also captures latest DLT SETUP version/timestamp/updateId for pipeline correlation.
+  """
+    if not history_rows:
+        return None
+
+    merge_rows = [
+        row
+        for row in history_rows
+        if str(row.get("operation") or "").upper() == "MERGE"
+    ]
+    write_rows = [
+        row
+        for row in history_rows
+        if str(row.get("operation") or "").upper() in DELTA_DATA_WRITE_OPERATIONS
+    ]
+    dlt_rows = [
+        row
+        for row in history_rows
+        if "DLT" in str(row.get("operation") or "").upper()
+    ]
+
+    latest_merge = (
+        max(merge_rows, key=_history_version_key) if merge_rows else None
+    )
+    latest_write = (
+        max(write_rows, key=_history_version_key) if write_rows else None
+    )
+    latest_dlt = max(dlt_rows, key=_history_version_key) if dlt_rows else None
+    pick = latest_merge or latest_write
+    if pick is None:
+        return None
+
+    last_at = _parse_refresh_timestamp(pick.get("timestamp"))
+    if last_at is None:
+        return None
+
+    operation = str(pick.get("operation") or "")
+    result: dict[str, Any] = {
+        "table": "",
+        "last_refreshed_at": last_at,
+        "latest_refresh_status": operation,
+        "last_refresh_type": operation.casefold(),
+        "source": "delta_history",
+        "delta_version": _history_version_key(pick),
+    }
+    if latest_merge is not None:
+        result["last_merge_at"] = _parse_refresh_timestamp(
+            latest_merge.get("timestamp")
+        )
+        result["last_merge_version"] = _history_version_key(latest_merge)
+    if latest_dlt is not None:
+        result["last_dlt_setup_at"] = _parse_refresh_timestamp(
+            latest_dlt.get("timestamp")
+        )
+        result["last_dlt_setup_version"] = _history_version_key(latest_dlt)
+        result["dlt_update_id"] = _extract_update_id_from_history_params(
+            latest_dlt.get("operationParameters")
+        )
+    return result
+
+
+def fetch_delta_history_refresh_info(
+    spark,
+    ref: UcTableRef,
+    history_limit: int = 100,
+) -> dict[str, Any] | None:
+    """Read DESCRIBE HISTORY and return latest MERGE / write timestamp + version."""
+    limit = max(10, min(int(history_limit), 500))
+    rows: list[dict[str, Any]] = []
+    try:
+        history_df = spark.sql(
+            f"DESCRIBE HISTORY {ref.quoted_name} LIMIT {limit}"
+        )
+        rows = [row.asDict() for row in history_df.collect()]
+    except Exception as exc:
+        try:
+            history_df = spark.sql(f"DESCRIBE HISTORY {ref.quoted_name}")
+            rows = [row.asDict() for row in history_df.collect()[:limit]]
+        except Exception as exc2:
+            print(
+                f"[recon] WARN DESCRIBE HISTORY for {ref.name}: "
+                f"{_spark_error_summary(exc2)}"
+            )
+            return None
+        print(
+            f"[recon] WARN DESCRIBE HISTORY LIMIT for {ref.name}: "
+            f"{_spark_error_summary(exc)}; used unbounded history"
+        )
+
+    info = summarize_delta_history_refresh(rows)
+    if info is None:
+        return None
+    info["table"] = ref.name
+    return info
+
+
 def fetch_streaming_table_refresh_info(
     spark,
     catalog: str,
     schema: str,
     table_nm: str,
+    history_limit: int = 100,
 ) -> dict[str, Any] | None:
     """
     Per-table refresh metadata for UC streaming / materialized views.
 
-    Prefers refresh_information from DESCRIBE TABLE EXTENDED AS JSON (DBR 17.3+),
-    then Last Modified from DESCRIBE TABLE EXTENDED.
+    Prefers DESCRIBE HISTORY (latest MERGE timestamp + version), then UC metadata fallbacks.
     """
     ref = resolve_uc_table_ref(spark, catalog, schema, table_nm)
     if ref is None:
@@ -333,22 +476,11 @@ def fetch_streaming_table_refresh_info(
         )
         return None
 
-    try:
-        json_row = spark.sql(f"DESCRIBE TABLE EXTENDED {ref.quoted_name} AS JSON").collect()[0]
-        json_text = json_row[0]
-        data = json.loads(json_text) if isinstance(json_text, str) else {}
-        refresh = data.get("refresh_information") or {}
-        last_at = _parse_refresh_timestamp(refresh.get("last_refreshed_at"))
-        if last_at is not None:
-            return {
-                "table": ref.name,
-                "last_refreshed_at": last_at,
-                "latest_refresh_status": str(refresh.get("latest_refresh_status") or ""),
-                "last_refresh_type": str(refresh.get("last_refresh_type") or ""),
-                "source": "refresh_information",
-            }
-    except Exception as exc:
-        print(f"[recon] WARN refresh_information JSON for {ref.name}: {exc}")
+    history_info = fetch_delta_history_refresh_info(
+        spark, ref, history_limit=history_limit
+    )
+    if history_info is not None:
+        return history_info
 
     try:
         detail_row = spark.sql(f"DESCRIBE DETAIL {ref.quoted_name}").collect()[0]
@@ -363,7 +495,10 @@ def fetch_streaming_table_refresh_info(
                 "source": "describe_detail",
             }
     except Exception as exc:
-        print(f"[recon] WARN DESCRIBE DETAIL for {ref.name}: {exc}")
+        print(
+            f"[recon] WARN DESCRIBE DETAIL for {ref.name}: "
+            f"{_spark_error_summary(exc)}"
+        )
 
     try:
         esc_catalog = catalog.replace("`", "``")
@@ -388,7 +523,10 @@ WHERE table_schema = '{esc_schema.replace("'", "''")}'
                     "source": "information_schema",
                 }
     except Exception as exc:
-        print(f"[recon] WARN information_schema.tables for {ref.name}: {exc}")
+        print(
+            f"[recon] WARN information_schema.tables for {ref.name}: "
+            f"{_spark_error_summary(exc)}"
+        )
 
     try:
         for row in spark.sql(f"DESCRIBE TABLE EXTENDED {ref.quoted_name}").collect():
@@ -404,7 +542,32 @@ WHERE table_schema = '{esc_schema.replace("'", "''")}'
                         "source": "describe_extended",
                     }
     except Exception as exc:
-        print(f"[recon] WARN DESCRIBE TABLE EXTENDED for {ref.name}: {exc}")
+        print(
+            f"[recon] WARN DESCRIBE TABLE EXTENDED for {ref.name}: "
+            f"{_spark_error_summary(exc)}"
+        )
+
+    try:
+        json_row = spark.sql(
+            f"DESCRIBE TABLE EXTENDED {ref.quoted_name} AS JSON"
+        ).collect()[0]
+        json_text = json_row[0]
+        data = json.loads(json_text) if isinstance(json_text, str) else {}
+        refresh = data.get("refresh_information") or {}
+        last_at = _parse_refresh_timestamp(refresh.get("last_refreshed_at"))
+        if last_at is not None:
+            return {
+                "table": ref.name,
+                "last_refreshed_at": last_at,
+                "latest_refresh_status": str(refresh.get("latest_refresh_status") or ""),
+                "last_refresh_type": str(refresh.get("last_refresh_type") or ""),
+                "source": "refresh_information",
+            }
+    except Exception as exc:
+        print(
+            f"[recon] WARN refresh_information JSON for {ref.name}: "
+            f"{_spark_error_summary(exc)}"
+        )
     return None
 
 
@@ -445,13 +608,17 @@ def evaluate_table_refresh_after_sql_ct(
 
     table_name = str(table_refresh.get("table") or "")
     refresh_status = str(table_refresh.get("latest_refresh_status") or "")
+    delta_version = table_refresh.get("delta_version")
+    version_note = (
+        f" delta_version={delta_version}" if delta_version is not None else ""
+    )
     return (
         "PASS",
         (
             f"delta refreshed after SQL CT: table={table_name} "
             f"last_refreshed_at={refresh_dt.isoformat()} "
             f"sql_ct_reference={ref_dt.isoformat()} "
-            f"refresh_status={refresh_status or 'n/a'}"
+            f"refresh_status={refresh_status or 'n/a'}{version_note}"
         ),
     )
 
@@ -708,10 +875,14 @@ def run_simplified_pipeline_recon(
                 else None
             )
             if table_refresh:
+                dlt_id = table_refresh.get("dlt_update_id") or "n/a"
                 print(
                     f"[recon] {ctx.pipeline_key} {table_nm}: delta refresh "
+                    f"source={table_refresh.get('source') or 'n/a'} "
                     f"last_refreshed_at={table_refresh.get('last_refreshed_at')} "
-                    f"status={table_refresh.get('latest_refresh_status') or 'n/a'}"
+                    f"op={table_refresh.get('latest_refresh_status') or 'n/a'} "
+                    f"delta_version={table_refresh.get('delta_version') or 'n/a'} "
+                    f"dlt_update_id={dlt_id}"
                 )
             else:
                 print(

@@ -16,6 +16,7 @@ from common.ops.source_ct_direct import (
     fetch_change_tracking_current_version,
     fetch_one_as_dict,
     fetch_scalar,
+    fetch_scalar_value,
     open_sql_server_connection,
     resolve_sql_server_config,
 )
@@ -98,12 +99,19 @@ FROM CHANGETABLE(CHANGES {schema}.{table}, {int(watermark_before)}) AS chg
 INNER JOIN sys.dm_tran_commit_table AS ct ON ct.commit_ts = chg.SYS_CHANGE_VERSION
 WHERE chg.SYS_CHANGE_OPERATION IN ('I', 'U', 'D'){upper};
 """.strip()
-    value = fetch_scalar(conn, sql, "latest_ct_commit_at")
+    value = fetch_scalar_value(conn, sql, "latest_ct_commit_at")
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-    return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+    except ValueError:
+        return None
 
 
 def _sql_ct_reference_timestamp(
@@ -152,14 +160,6 @@ def discover_pending_ct_tables(
             print(
                 f"[recon] WARN latest CT commit time failed for {table_nm}: {exc}"
             )
-        if latest_ct_commit_at is None and watermark_before > 0:
-            print(
-                f"[recon] WARN {table_nm}: no CT commit_time from CHANGETABLE "
-                f"(watermark_before={watermark_before}); using watermark updated_at"
-            )
-        sql_ct_reference_at = _sql_ct_reference_timestamp(
-            watermark_updated_at, latest_ct_commit_at
-        )
         try:
             pending = fetch_pending_ct_counts(
                 conn, src_schema, table_nm, watermark_before, ct_head
@@ -168,6 +168,14 @@ def discover_pending_ct_tables(
             continue
         if pending.total <= 0:
             continue
+        if latest_ct_commit_at is None and watermark_before > 0:
+            print(
+                f"[recon] WARN {table_nm}: no CT commit_time from CHANGETABLE "
+                f"(watermark_before={watermark_before}); using watermark updated_at"
+            )
+        sql_ct_reference_at = _sql_ct_reference_timestamp(
+            watermark_updated_at, latest_ct_commit_at
+        )
         pending_tables.append(
             PendingCtTable(
                 schema_name=src_schema or "dbo",

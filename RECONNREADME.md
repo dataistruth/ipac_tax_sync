@@ -212,8 +212,10 @@ Continuous job (`pause_status: UNPAUSED`). Widgets:
 | `lookback_hours` | `24` | Event log lookback |
 | `simplified_recon` | `true` | CT-driven simplified path (`recon_ready` only) |
 | `simple_pass_rule` | `ingest_quiesce` | Flow metrics + each Delta table refreshed after SQL CT reference time |
-| `table_after_ct` | (option) | Per-table only: Delta `last_refreshed_at` after SQL CT reference (+ quiesce) |
-| `table_quiesce_sec` | `15` | Buffer after SQL CT reference timestamp before Delta refresh must occur |
+| `table_after_ct` | (option) | Per-table only: Delta write after SQL CT reference (+ quiesce) |
+| `table_quiesce_sec` | `15` | Buffer after SQL CT reference timestamp before Delta write must occur |
+
+**Delta write timestamp:** For `ingest_quiesce` / `table_after_ct`, recon reads `DESCRIBE HISTORY` on the UC target and uses the latest **MERGE** version/timestamp (fallback: WRITE/UPDATE/DELETE). DLT SETUP rows supply `updateId` for logging only. UC `refresh_information` / `lastModified` are fallbacks when history is empty.
 | `row_count_only_on_flow_complete` | `true` | Skip SQL/Delta `COUNT_BIG` until flow/API COMPLETED |
 | `use_api_update_complete` | `true` | Use GET pipeline `latest_update.state=COMPLETED` when event log has no `flow_progress` |
 

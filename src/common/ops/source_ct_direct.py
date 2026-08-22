@@ -149,6 +149,13 @@ def fetch_all_as_dict(conn: Any, sql: str) -> list[dict[str, Any]]:
 
 
 def fetch_scalar(conn: Any, sql: str, column: str) -> int | None:
+    value = fetch_scalar_value(conn, sql, column)
+    if value is None:
+        return None
+    return int(value)
+
+
+def fetch_scalar_value(conn: Any, sql: str, column: str) -> Any:
     with conn.cursor() as cur:
         cur.execute(sql)
         row = cur.fetchone()
@@ -157,7 +164,7 @@ def fetch_scalar(conn: Any, sql: str, column: str) -> int | None:
         value = row[0] if not hasattr(row, column) else row[column]
         if value is None:
             return None
-        return int(value)
+        return value
 
 
 def fetch_change_tracking_current_version(conn: Any) -> int | None:
