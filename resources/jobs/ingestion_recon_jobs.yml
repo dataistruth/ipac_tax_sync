@@ -25,4 +25,3 @@ resources:
               pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
               dest_schema_suffix: ${var.dest_schema_suffix}
               poll_interval_sec: ${var.recon_poll_interval_sec}
-              lookback_hours: ${var.recon_lookback_hours}

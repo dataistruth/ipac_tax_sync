@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -57,7 +59,7 @@ from common.ops.sql_server_audit_store import (
     complete_recon_run,
     discover_pending_ct_tables,
     fetch_change_tracking_current_version,
-    fetch_sql_row_count,
+    fetch_sql_row_counts_batch,
     flush_recon_event_log_watermarks_sql,
     insert_recon_run,
     open_audit_connection,
@@ -625,11 +627,73 @@ def evaluate_table_refresh_after_sql_ct(
     )
 
 
+def _parallel_delta_row_count(
+    spark,
+    catalog: str,
+    ctx: Any,
+    table_nm: str,
+) -> tuple[str, int | None]:
+    dest_schema = _destination_schema_for_table(ctx, table_nm)
+    if not dest_schema:
+        return table_nm.casefold(), None
+    try:
+        return table_nm.casefold(), count_delta_table_rows(
+            spark, catalog, dest_schema, table_nm
+        )
+    except Exception as exc:
+        print(f"[recon] WARN parallel delta_count {table_nm}: {exc}")
+        return table_nm.casefold(), None
+
+
+def prefetch_row_count_samples(
+    spark,
+    catalog: str,
+    ctx: Any,
+    src_schema: str,
+    table_names: list[str],
+    conn: Any,
+    *,
+    max_delta_workers: int = 5,
+) -> dict[str, tuple[int | None, int | None]]:
+    """
+    Sample row counts: one SQL UNION ALL COUNT(*), Delta counts in parallel.
+
+    SQL Server counts are fast — single query. UC streaming COUNT(1) runs in
+    parallel when max_delta_workers > 1.
+    """
+    if not table_names:
+        return {}
+
+    keys = {t.casefold() for t in table_names}
+    sql_counts = fetch_sql_row_counts_batch(conn, src_schema, table_names)
+    delta_counts: dict[str, int | None] = {k: None for k in keys}
+    workers = max(1, min(max_delta_workers, len(table_names)))
+
+    if workers <= 1:
+        for table_nm in table_names:
+            key, value = _parallel_delta_row_count(spark, catalog, ctx, table_nm)
+            delta_counts[key] = value
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_parallel_delta_row_count, spark, catalog, ctx, table_nm)
+                for table_nm in table_names
+            ]
+            for fut in as_completed(futures):
+                key, value = fut.result()
+                delta_counts[key] = value
+
+    return {
+        k: (sql_counts.get(k), delta_counts.get(k))
+        for k in keys
+    }
+
+
 def select_row_count_sample_tables(
     pending_tables: list[PendingCtTable],
     sample_size: int = 5,
 ) -> set[str]:
-    """Pick up to sample_size changed tables (highest pending CT first) for COUNT_BIG."""
+    """Pick up to sample_size changed tables (highest pending CT first) for row count."""
     if sample_size <= 0 or not pending_tables:
         return set()
     ranked = sorted(pending_tables, key=lambda p: p.pending.total, reverse=True)
@@ -722,6 +786,7 @@ PASS_RULES_DELTA_HISTORY = frozenset(
 )
 
 DATABASE_RECON_FLOW_NAME = "__database_recon__"
+DATABASE_RECON_TABLE_NM = "__database__"
 
 
 @dataclass
@@ -796,7 +861,7 @@ def build_database_recon_ready_row(
     db_name = client.src_db_nm
     return ReconReadyRow(
         client_nm=client.client_nm,
-        table_nm=db_name,
+        table_nm=DATABASE_RECON_TABLE_NM,
         database_name=db_name,
         pipeline_id=pipeline_id,
         update_id=update_id,
@@ -926,6 +991,7 @@ def run_simplified_pipeline_recon(
     ct_head_cache: dict[str, int] | None = None,
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
+    row_count_parallel_workers: int = 5,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -948,7 +1014,8 @@ def run_simplified_pipeline_recon(
         f"row_count_only_on_flow_complete={row_count_only_on_flow_complete} "
         f"use_api_update_complete={use_api_update_complete} "
         f"table_quiesce_sec={table_quiesce_sec} "
-        f"row_count_sample_size={row_count_sample_size}"
+        f"row_count_sample_size={row_count_sample_size} "
+        f"row_count_parallel_workers={row_count_parallel_workers}"
     )
     if pipeline_detail:
         print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(pipeline_detail)}")
@@ -1018,6 +1085,48 @@ def run_simplified_pipeline_recon(
             f"({len(sample_list)}/{len(pending_tables)} tables): "
             f"{', '.join(sample_list) or 'none'}"
         )
+
+    row_count_cache: dict[str, tuple[int | None, int | None]] = {}
+    if pass_rule == "ct_delta_history" and row_count_sample:
+        sample_names = [
+            p.table_name
+            for p in pending_tables
+            if p.table_name.casefold() in row_count_sample
+        ]
+        if sample_names:
+            prefetch_start = time.perf_counter()
+            row_count_cache = prefetch_row_count_samples(
+                spark,
+                catalog,
+                ctx,
+                src_schema,
+                sample_names,
+                conn,
+                max_delta_workers=row_count_parallel_workers,
+            )
+            prefetch_elapsed = time.perf_counter() - prefetch_start
+            delta_workers = max(1, min(row_count_parallel_workers, len(sample_names)))
+            print(
+                f"[recon] {ctx.pipeline_key}: row_count prefetch "
+                f"sql=UNION({len(sample_names)}) delta_workers={delta_workers} "
+                f"elapsed={prefetch_elapsed:.1f}s"
+            )
+            for table_nm in sample_names:
+                key = table_nm.casefold()
+                sql_count, delta_count = row_count_cache.get(key, (None, None))
+                dest_schema = _destination_schema_for_table(ctx, table_nm)
+                uc_ref = (
+                    resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
+                    if dest_schema
+                    else None
+                )
+                resolved = (
+                    uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
+                )
+                print(
+                    f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
+                    f"sql_count={sql_count} delta_count={delta_count} {resolved}"
+                )
 
     ready_written = 0
     waiting_count = 0
@@ -1132,18 +1241,24 @@ def run_simplified_pipeline_recon(
         elif pass_rule == "ct_delta_history":
             in_sample = table_nm.casefold() in row_count_sample
             if in_sample:
-                sql_count = fetch_sql_row_count(conn, src_schema, table_nm)
-                delta_count = (
-                    count_delta_table_rows(spark, catalog, dest_schema, table_nm)
-                    if dest_schema
-                    else None
-                )
-                uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
-                resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
-                print(
-                    f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
-                    f"sql_count={sql_count} delta_count={delta_count} {resolved}"
-                )
+                cached = row_count_cache.get(table_nm.casefold())
+                if cached is not None:
+                    sql_count, delta_count = cached
+                else:
+                    sql_count = fetch_sql_row_counts_batch(
+                        conn, src_schema, [table_nm]
+                    ).get(table_nm.casefold())
+                    delta_count = (
+                        count_delta_table_rows(spark, catalog, dest_schema, table_nm)
+                        if dest_schema
+                        else None
+                    )
+                    uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
+                    resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
+                    print(
+                        f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
+                        f"sql_count={sql_count} delta_count={delta_count} {resolved}"
+                    )
             status, message = evaluate_ct_delta_history_recon(
                 table_refresh,
                 sql_ct_ref,
@@ -1183,7 +1298,9 @@ def run_simplified_pipeline_recon(
                         f"CT head stable at {probe.ct_head_version} — running row_count"
                     )
                 if not defer_row_count:
-                    sql_count = fetch_sql_row_count(conn, src_schema, table_nm)
+                    sql_count = fetch_sql_row_counts_batch(
+                        conn, src_schema, [table_nm]
+                    ).get(table_nm.casefold())
                     uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
                     delta_count = (
                         count_delta_table_rows(spark, catalog, dest_schema, table_nm)
@@ -1310,17 +1427,21 @@ def run_simplified_pipeline_recon(
             f"{len(batch_waiting)}/{len(table_outcomes)} table(s) not ready"
         )
     elif batch_pass and len(batch_pass) == len(table_outcomes):
-        if pipeline_id and batch_update_id and recon_database_already_recorded(
-            spark,
-            catalog,
-            metadata_schema,
-            pipeline_id,
-            batch_update_id,
-            client.src_db_nm,
+        if (
+            pipeline_id
+            and ct_head_version is not None
+            and recon_database_already_recorded(
+                spark,
+                catalog,
+                metadata_schema,
+                pipeline_id,
+                client.src_db_nm,
+                ct_head_version,
+            )
         ):
             print(
                 f"[recon] {ctx.pipeline_key}: SKIP database recon_ready already "
-                f"recorded update_id={batch_update_id}"
+                f"recorded database={client.src_db_nm} ct_head={ct_head_version}"
             )
         else:
             completed_at = datetime.now(timezone.utc)
@@ -1334,31 +1455,40 @@ def run_simplified_pipeline_recon(
                 ct_head_version=ct_head_version,
                 completed_at=completed_at,
             )
-            ready_written += write_recon_ready_rows(
-                spark, catalog, metadata_schema, [ready]
-            )
-            for outcome in batch_pass:
-                upsert_table_watermark(
-                    conn,
-                    client.src_db_nm,
-                    outcome.schema_name,
-                    outcome.table_nm,
-                    outcome.probe.ct_head_version,
-                    client_nm=client.client_nm,
-                    pipeline_key=ctx.pipeline_key,
+            try:
+                written = write_recon_ready_rows(
+                    spark, catalog, metadata_schema, [ready]
                 )
-            if ct_head_version is not None:
-                upsert_db_watermark(
-                    conn,
-                    client.src_db_nm,
-                    ct_head_version,
-                    client_nm=client.client_nm,
+                ready_written += written
+            except Exception as exc:
+                print(
+                    f"[recon] ERROR write_recon_ready_rows database={client.src_db_nm} "
+                    f"ct_head={ct_head_version}: {exc}"
                 )
-            print(
-                f"[recon] PASS {ctx.pipeline_key} database={client.src_db_nm} "
-                f"tables={len(batch_pass)} ct_head={ct_head_version} "
-                f"→ recon_ready written (1 row)"
-            )
+                written = 0
+            if written:
+                for outcome in batch_pass:
+                    upsert_table_watermark(
+                        conn,
+                        client.src_db_nm,
+                        outcome.schema_name,
+                        outcome.table_nm,
+                        outcome.probe.ct_head_version,
+                        client_nm=client.client_nm,
+                        pipeline_key=ctx.pipeline_key,
+                    )
+                if ct_head_version is not None:
+                    upsert_db_watermark(
+                        conn,
+                        client.src_db_nm,
+                        ct_head_version,
+                        client_nm=client.client_nm,
+                    )
+                print(
+                    f"[recon] PASS {ctx.pipeline_key} database={client.src_db_nm} "
+                    f"tables={len(batch_pass)} ct_head={ct_head_version} "
+                    f"→ recon_ready written (1 row)"
+                )
 
     if pass_rule in PASS_RULES_DELTA_HISTORY and pending_tables:
         print(
@@ -1370,11 +1500,17 @@ def run_simplified_pipeline_recon(
 
     if run_id:
         try:
+            if batch_all_pass and ready_written == 0 and ct_head_version is not None:
+                run_message = (
+                    f"ready=0 deduped ct_head={ct_head_version} waiting={waiting_count}"
+                )
+            else:
+                run_message = f"ready={ready_written} waiting={waiting_count}"
             complete_recon_run(
                 conn,
                 run_id,
-                run_status="PASS" if ready_written else "SKIPPED",
-                run_message=f"ready={ready_written} waiting={waiting_count}",
+                run_status="PASS" if batch_all_pass else "SKIPPED",
+                run_message=run_message,
             )
         except Exception as exc:
             print(f"[recon] WARN complete_recon_run: {exc}")
@@ -1476,25 +1612,30 @@ def recon_database_already_recorded(
     catalog: str,
     metadata_schema: str,
     pipeline_id: str,
-    update_id: str,
     database_name: str,
+    ct_head_version: int,
 ) -> bool:
-    """Idempotency for one DB-level recon_ready per pipeline update."""
-    return recon_already_recorded(
-        spark,
-        catalog,
-        metadata_schema,
-        pipeline_id,
-        update_id,
-        DATABASE_RECON_FLOW_NAME,
-    ) or recon_already_recorded(
-        spark,
-        catalog,
-        metadata_schema,
-        pipeline_id,
-        update_id,
-        database_name,
-    )
+    """
+    Idempotency for one DB-level recon_ready per reconciled CT head.
+
+    Continuous Lakeflow pipelines reuse the same update_id for hours; keying only
+    on update_id blocks every subsequent batch after the first PASS.
+    """
+    target = qualified_table(catalog, metadata_schema, RECON_READY_TABLE)
+    try:
+        rows = spark.sql(
+            f"""
+            SELECT 1 FROM {target}
+            WHERE pipeline_id = '{pipeline_id.replace("'", "''")}'
+              AND database_name = '{database_name.replace("'", "''")}'
+              AND ct_head_version = {int(ct_head_version)}
+              AND flow_name = '{DATABASE_RECON_FLOW_NAME.replace("'", "''")}'
+            LIMIT 1
+            """
+        ).collect()
+        return len(rows) > 0
+    except Exception:
+        return False
 
 
 def run_pipeline_recon(
@@ -1744,6 +1885,7 @@ def run_all_pipeline_recon(
     use_api_update_complete: bool = True,
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
+    row_count_parallel_workers: int = 5,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     if simplified_recon and not use_sql_server_audit:
@@ -1924,6 +2066,7 @@ def run_all_pipeline_recon(
                 ct_head_cache=ct_head_cache,
                 table_quiesce_sec=table_quiesce_sec,
                 row_count_sample_size=row_count_sample_size,
+                row_count_parallel_workers=row_count_parallel_workers,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n

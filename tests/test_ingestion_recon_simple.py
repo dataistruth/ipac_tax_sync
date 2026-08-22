@@ -1,6 +1,6 @@
 """Tests for simplified CT-driven recon helpers."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from common.ops.ingestion_recon_ops import (
     build_database_tables_json,
@@ -9,6 +9,7 @@ from common.ops.ingestion_recon_ops import (
     evaluate_ingest_quiesce_recon,
     evaluate_simple_recon,
     evaluate_table_refresh_after_sql_ct,
+    prefetch_row_count_samples,
     select_row_count_sample_tables,
     summarize_delta_history_refresh,
     SimplifiedTableOutcome,
@@ -95,6 +96,51 @@ def test_select_row_count_sample_tables():
     ]
     sample = select_row_count_sample_tables(probes, sample_size=2)
     assert sample == {"big", "mid"}
+
+
+def test_prefetch_row_count_samples_parallel():
+    ctx = MagicMock()
+    ctx.tables = []
+    conn = MagicMock()
+
+    with patch(
+        "common.ops.ingestion_recon_ops.fetch_sql_row_counts_batch",
+        return_value={"t1": 10, "t2": 20},
+    ) as sql_mock, patch(
+        "common.ops.ingestion_recon_ops._parallel_delta_row_count",
+        side_effect=[
+            ("t1", 10),
+            ("t2", 21),
+        ],
+    ) as delta_mock:
+        result = prefetch_row_count_samples(
+            MagicMock(),
+            "dev7",
+            ctx,
+            "dbo",
+            ["T1", "T2"],
+            conn,
+            max_delta_workers=4,
+        )
+
+    assert result == {"t1": (10, 10), "t2": (20, 21)}
+    sql_mock.assert_called_once_with(conn, "dbo", ["T1", "T2"])
+    assert delta_mock.call_count == 2
+
+
+def test_fetch_sql_row_counts_batch_union():
+    from common.ops.sql_server_audit_store import fetch_sql_row_counts_batch
+
+    conn = MagicMock()
+    with patch(
+        "common.ops.sql_server_audit_store.fetch_all_as_dict",
+        return_value=[
+            {"table_name": "K1Input_Snapshot", "cnt": 100},
+            {"table_name": "CYAdjustmentInput", "cnt": 200},
+        ],
+    ):
+        out = fetch_sql_row_counts_batch(conn, "dbo", ["K1Input_Snapshot", "CYAdjustmentInput"])
+    assert out == {"k1input_snapshot": 100, "cyadjustmentinput": 200}
 
 
 def test_evaluate_ct_delta_history_pass_history_only():

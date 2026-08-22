@@ -80,10 +80,39 @@ class PendingCtTable:
 
 
 def fetch_sql_row_count(conn: Any, src_schema: str, table_name: str) -> int | None:
+    batch = fetch_sql_row_counts_batch(conn, src_schema, [table_name])
+    return batch.get(table_name.casefold())
+
+
+def fetch_sql_row_counts_batch(
+    conn: Any,
+    src_schema: str,
+    table_names: list[str],
+) -> dict[str, int | None]:
+    """One round-trip: UNION ALL of COUNT(*) per table."""
+    if not table_names:
+        return {}
     schema = (src_schema or "dbo").replace("'", "''")
-    table = table_name.replace("'", "''")
-    sql = f"SELECT COUNT_BIG(*) AS cnt FROM {schema}.{table};"
-    return fetch_scalar(conn, sql, "cnt")
+    selects: list[str] = []
+    for table_name in table_names:
+        table_esc = table_name.replace("'", "''")
+        name_esc = table_name.replace("'", "''")
+        selects.append(
+            f"SELECT '{name_esc}' AS table_name, COUNT(*) AS cnt FROM {schema}.{table_esc}"
+        )
+    sql = "\nUNION ALL\n".join(selects)
+    out: dict[str, int | None] = {t.casefold(): None for t in table_names}
+    try:
+        rows = fetch_all_as_dict(conn, sql)
+    except Exception as exc:
+        print(f"[recon] WARN sql row_count UNION failed: {exc}")
+        return out
+    for row in rows:
+        name = str(row.get("table_name") or "").casefold()
+        cnt = row.get("cnt")
+        if name in out and cnt is not None:
+            out[name] = int(cnt)
+    return out
 
 
 def fetch_latest_pending_ct_commit_time(

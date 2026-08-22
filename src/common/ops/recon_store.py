@@ -379,7 +379,7 @@ def recon_ready_create_sql(catalog: str, schema: str) -> str:
 CREATE TABLE IF NOT EXISTS {table} (
   recon_id STRING NOT NULL,
   client_nm STRING NOT NULL,
-  table_nm STRING NOT NULL COMMENT 'Database name for DB-level recon rows',
+  table_nm STRING NOT NULL COMMENT 'UC table name for per-table rows; __database__ for DB-level batch',
   pipeline_id STRING NOT NULL,
   update_id STRING NOT NULL,
   flow_name STRING NOT NULL,

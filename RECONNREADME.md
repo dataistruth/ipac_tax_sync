@@ -168,7 +168,7 @@ Example: `dev7.ipac_metadata.ingest_events_p_iPC_2025_Dev7_15347_1`
 |--------|-------------|
 | `recon_id` | UUID |
 | `client_nm` | Client |
-| `table_nm` | SQL database name (same as `database_name`) |
+| `table_nm` | `__database__` for DB-level rows; actual UC table name for legacy per-table rows |
 | `database_name` | SQL Server database reconciled |
 | `tables_json` | JSON list of all tables in the batch (names, pending CT, counts, delta version) |
 | `ct_watermark_before` | `ct_db_watermark.last_version` at recon start |
@@ -225,27 +225,24 @@ SQL Server DDL: run scripts in `src/common/sql_server/sql/` on the instance.
 **Definition:** `resources/jobs/ingestion_recon_jobs.yml`  
 **Notebook:** `src/common/notebooks/run_ingestion_recon.py`
 
-Continuous job (`pause_status: UNPAUSED`). Widgets:
+Continuous job (`pause_status: UNPAUSED`). Notebook widgets (8):
 
 | Widget | Default | Description |
 |--------|---------|-------------|
-| `uc_catalog` | `ipac_tax_synch` | UC catalog |
+| `uc_catalog` | `dev7` | UC catalog for `recon_ready` / `process_log` |
 | `ipac_metadata_schema` | `ipac_metadata` | Metadata schema |
-| `pipeline_names_file` | `generated/config/pipeline_names.json` | Monitored pipelines |
-| `dest_schema_suffix` | `poc_1` | Schema suffix for table resolution |
+| `pipeline_names_file` | `generated/config/pipeline_names.json` | Monitored pipelines (required) |
+| `dest_schema_suffix` | `_poc1` | Suffix for UC destination schema resolution |
 | `poll_interval_sec` | `300` | Poll loop interval |
-| `lookback_hours` | `24` | Event log lookback |
-| `simplified_recon` | `true` | CT-driven simplified path (`recon_ready` only) |
-| `simple_pass_rule` | `ct_delta_history` | SQL CT version change + all changed tables: Delta MERGE after CT timestamp; sample row count |
-| `table_after_ct` | (option) | Per-table only: Delta history write after SQL CT reference (+ quiesce) |
-| `table_quiesce_sec` | `15` | Buffer after SQL CT change timestamp before Delta write must occur |
-| `row_count_sample_size` | `5` | For `ct_delta_history`: up to N highest-pending tables get SQL vs UC `COUNT(1)` check |
+| `table_quiesce_sec` | `15` | Buffer after SQL CT change before Delta write must occur |
+| `row_count_sample_size` | `5` | Up to N highest-pending tables get SQL vs UC row-count check |
+| `row_count_parallel_workers` | `5` | Parallel UC Delta `COUNT(1)` only (SQL uses one UNION query) |
 
-**Delta write timestamp:** For `ct_delta_history` / `table_after_ct` / `ingest_quiesce`, recon reads `DESCRIBE HISTORY` on the UC target and uses the latest **MERGE** version/timestamp (fallback: WRITE/UPDATE/DELETE). DLT SETUP rows supply `updateId` for logging only. UC metadata fallbacks apply when history is empty.
+**Fixed in notebook (not widgets):** `simple_pass_rule=ct_delta_history`, `simplified_recon=true`, `use_sql_server_audit=true`. SQL host and secret scope come from `client.json`. CT connectivity probe removed — use `test_mssql_python.py` if needed.
 
-**`ct_delta_history` (recommended):** Does not use `flow_progress` metrics or flow COMPLETED. When `ct_db_watermark` / table watermarks lag CT head, the DB is on the recon queue; all configured tables with pending CT must show a Delta write after the SQL CT reference time; up to `row_count_sample_size` tables (highest pending first) also require SQL vs Delta row-count match.
-| `row_count_only_on_flow_complete` | `true` | Skip row counts until flow/API COMPLETED (non-`ct_delta_history` rules) |
-| `use_api_update_complete` | `true` | Use GET pipeline `latest_update.state=COMPLETED` when event log has no `flow_progress` |
+**Delta write timestamp:** Recon reads `DESCRIBE HISTORY` on the UC target and uses the latest **MERGE** timestamp (fallback: WRITE/UPDATE/DELETE). DLT SETUP rows supply `updateId` for logging only.
+
+**`ct_delta_history`:** Does not use `flow_progress` or event_log. When watermarks lag CT head, all pending tables must show a Delta write after the SQL CT reference time; up to `row_count_sample_size` tables (highest pending first) also require SQL vs Delta row-count match.
 
 Deploy:
 

@@ -1,16 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Ingestion flow metrics reconciliation
+# MAGIC # Ingestion reconciliation (CT + Delta history)
 # MAGIC
-# MAGIC Polls hidden `event_log(pipeline_id)` for pipelines with activity,
-# MAGIC aggregates per-table `flow_progress` metrics when status = COMPLETED,
-# MAGIC compares SQL Server Change Tracking (ipac_metadata.dbo watermarks) for `recon_type` 2/3,
-# MAGIC writes `recon_ready` to UC Delta (calc gate only).
+# MAGIC Polls SQL Server Change Tracking vs UC Delta targets, writes **`recon_ready`** on database PASS.
+# MAGIC SQL Server (`ipac_metadata.dbo`) holds watermarks and audit; UC holds `recon_ready` + `process_log`.
 # MAGIC
-# MAGIC Continuous loop: poll CT → compare Delta history / counts → one `recon_ready` row per database PASS.
-# MAGIC SQL Server holds watermarks and recon audit only (no SQL process_log).
+# MAGIC **Pass rule:** `ct_delta_history` (fixed) — no `flow_progress` / event_log dependency.
 # MAGIC
-# MAGIC **Dependencies:** `mssql-python` and `pydantic>=2` via `%pip` in cell 1 (runtime ships Pydantic v1).
+# MAGIC **Dependencies:** `mssql-python` and `pydantic>=2` via `%pip` in cell 1.
 
 # COMMAND ----------
 
@@ -19,94 +16,41 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-dbutils.widgets.text("uc_catalog", "ipac_tax_synch", "UC catalog")
+dbutils.widgets.text("uc_catalog", "dev7", "UC catalog")
 dbutils.widgets.text("ipac_metadata_schema", "ipac_metadata", "Metadata schema")
 dbutils.widgets.text("pipeline_names_file", "", "pipeline_names.json path")
 dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
-dbutils.widgets.text("poll_interval_sec", "300", "Poll interval seconds")
-dbutils.widgets.text("lookback_hours", "24", "Event log lookback hours")
-dbutils.widgets.dropdown("run_ct_probe", "true", ["true", "false"], "Run SQL Server CT probe at startup")
-dbutils.widgets.text("ct_probe_table_nm", "", "Table to probe (blank = first active common table)")
-dbutils.widgets.text("sql_host", "", "SQL host override (blank = client.json sql_host)")
-dbutils.widgets.text("sql_audit_secret_scope", "scope_ipacs_audit", "Databricks secret scope for audit SQL login")
-dbutils.widgets.dropdown("use_sql_server_audit", "true", ["true", "false"], "Use ipac_metadata.dbo CT watermarks")
-dbutils.widgets.dropdown("simplified_recon", "true", ["true", "false"], "CT-driven simplified recon (recon_ready only)")
-dbutils.widgets.dropdown(
-    "simple_pass_rule",
-    "ct_delta_history",
-    [
-        "auto",
-        "flow_complete",
-        "row_count",
-        "ct_metrics",
-        "ingest_quiesce",
-        "table_after_ct",
-        "ct_delta_history",
-    ],
-    "Pass rule: ct_delta_history=SQL CT + delta history (no flow_metrics)",
-)
-dbutils.widgets.dropdown(
-    "row_count_only_on_flow_complete",
-    "true",
-    ["true", "false"],
-    "Defer COUNT_BIG until flow_progress COMPLETED",
-)
-dbutils.widgets.text(
-    "table_quiesce_sec",
-    "15",
-    "Seconds after SQL CT change before Delta write gate",
-)
-dbutils.widgets.text(
-    "row_count_sample_size",
-    "5",
-    "Tables to COUNT_BIG sample when using ct_delta_history",
-)
-dbutils.widgets.dropdown(
-    "use_api_update_complete",
-    "true",
-    ["true", "false"],
-    "Treat pipeline API last update COMPLETED as flow complete",
-)
+dbutils.widgets.text("poll_interval_sec", "300", "Poll interval (seconds)")
+dbutils.widgets.text("table_quiesce_sec", "15", "Seconds after SQL CT before Delta write gate")
+dbutils.widgets.text("row_count_sample_size", "5", "Max tables for SQL vs Delta row count")
+dbutils.widgets.text("row_count_parallel_workers", "5", "Parallel Delta row-count workers (0=sequential)")
 
-uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "ipac_tax_synch"
+uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "dev7"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
 pipeline_names_file = dbutils.widgets.get("pipeline_names_file").strip()
 dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "_poc1"
 poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "300")
-lookback_hours = int(dbutils.widgets.get("lookback_hours").strip() or "24")
-run_ct_probe = dbutils.widgets.get("run_ct_probe").strip().lower() == "true"
-ct_probe_table_nm = dbutils.widgets.get("ct_probe_table_nm").strip()
-sql_host_override = dbutils.widgets.get("sql_host").strip()
-sql_audit_secret_scope = dbutils.widgets.get("sql_audit_secret_scope").strip() or "scope_ipacs_audit"
-use_sql_server_audit = dbutils.widgets.get("use_sql_server_audit").strip().lower() == "true"
-simplified_recon = dbutils.widgets.get("simplified_recon").strip().lower() == "true"
-simple_pass_rule = dbutils.widgets.get("simple_pass_rule").strip() or "ct_delta_history"
-row_count_only_on_flow_complete = (
-    dbutils.widgets.get("row_count_only_on_flow_complete").strip().lower() == "true"
-)
-use_api_update_complete = (
-    dbutils.widgets.get("use_api_update_complete").strip().lower() == "true"
-)
 table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "15")
 row_count_sample_size = int(dbutils.widgets.get("row_count_sample_size").strip() or "5")
+row_count_parallel_workers = int(
+    dbutils.widgets.get("row_count_parallel_workers").strip() or "5"
+)
 
-print(f"uc_catalog              : {uc_catalog}")
-print(f"metadata_schema         : {metadata_schema}")
-print(f"pipeline_names_file     : {pipeline_names_file or '(none)'}")
-print(f"dest_schema_suffix      : {dest_schema_suffix}")
-print(f"poll_interval_sec       : {poll_interval_sec}")
-print(f"lookback_hours          : {lookback_hours}")
-print(f"run_ct_probe            : {run_ct_probe}")
-print(f"ct_probe_table_nm       : {ct_probe_table_nm or '(first active table)'}")
-print(f"sql_host_override       : {sql_host_override or '(from client.json)'}")
-print(f"sql_audit_secret_scope  : {sql_audit_secret_scope}")
-print(f"use_sql_server_audit    : {use_sql_server_audit}")
-print(f"simplified_recon        : {simplified_recon}")
-print(f"simple_pass_rule        : {simple_pass_rule}")
-print(f"row_count_only_on_flow_complete : {row_count_only_on_flow_complete}")
-print(f"use_api_update_complete       : {use_api_update_complete}")
-print(f"table_quiesce_sec             : {table_quiesce_sec}")
-print(f"row_count_sample_size         : {row_count_sample_size}")
+# Fixed for this notebook (CT-driven path only).
+LOOKBACK_HOURS = 24
+USE_SQL_SERVER_AUDIT = True
+SIMPLIFIED_RECON = True
+SIMPLE_PASS_RULE = "ct_delta_history"
+
+print(f"uc_catalog                   : {uc_catalog}")
+print(f"metadata_schema              : {metadata_schema}")
+print(f"pipeline_names_file          : {pipeline_names_file or '(required)'}")
+print(f"dest_schema_suffix           : {dest_schema_suffix}")
+print(f"poll_interval_sec            : {poll_interval_sec}")
+print(f"table_quiesce_sec            : {table_quiesce_sec}")
+print(f"row_count_sample_size        : {row_count_sample_size}")
+print(f"row_count_parallel_workers   : {row_count_parallel_workers}")
+print(f"pass_rule (fixed)            : {SIMPLE_PASS_RULE}")
 
 # COMMAND ----------
 
@@ -119,7 +63,7 @@ src_root = f"{repo_root}/src"
 if src_root not in sys.path:
     sys.path.insert(0, src_root)
 
-from util.config_loader import get_client, list_active_clients, load_client_overrides, load_common_tables
+from util.config_loader import get_client, load_client_overrides, load_common_tables
 from util.resolver import resolve_effective_tables
 from common.ops.ingestion_recon_ops import (
     build_contexts_for_client,
@@ -128,8 +72,6 @@ from common.ops.ingestion_recon_ops import (
 )
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
 from common.ops.recon_store import ensure_recon_ready_table
-from common.ops.source_ct_direct import probe_source_ct_connection_direct
-from common.ops.sql_server_audit_store import open_audit_connection, resolve_source_ct_for_recon
 
 ensure_recon_ready_table(spark, uc_catalog, metadata_schema)
 
@@ -149,58 +91,12 @@ catalog = load_common_tables()
 contexts: list = []
 for client_nm in client_names:
     client = get_client(client_nm)
-    if sql_host_override:
-        client = client.model_copy(update={"sql_host": sql_host_override})
-    if sql_audit_secret_scope:
-        client = client.model_copy(update={"sql_audit_secret_scope": sql_audit_secret_scope})
     overrides = load_client_overrides(client_nm)
     tables = resolve_effective_tables(client, catalog, overrides)
     keys_for_client = [k for k in pipeline_keys if client_nm in k]
     contexts.extend(build_contexts_for_client(client, tables, dest_schema_suffix, keys_for_client))
 
 print(f"Monitoring {len(contexts)} pipeline(s) for {len(client_names)} client(s)")
-
-# COMMAND ----------
-
-if run_ct_probe:
-    common_catalog = load_common_tables()
-    for client_nm in client_names:
-        client = get_client(client_nm)
-        if sql_host_override:
-            client = client.model_copy(update={"sql_host": sql_host_override})
-        if sql_audit_secret_scope:
-            client = client.model_copy(update={"sql_audit_secret_scope": sql_audit_secret_scope})
-        overrides = load_client_overrides(client_nm)
-        effective = resolve_effective_tables(client, common_catalog, overrides)
-        probe_table = ct_probe_table_nm
-        if not probe_table and effective:
-            probe_table = effective[0].table_nm
-        if not probe_table:
-            print(f"[CT probe] SKIP {client_nm}: no table available for probe")
-            continue
-        print(f"========== CT probe: client={client_nm} table={probe_table} ==========")
-        print(f"[CT probe] src_db_nm: {client.src_db_nm}")
-        print(f"[CT probe] secret scope: {client.sql_audit_secret_scope}")
-        try:
-            conn, cfg = open_audit_connection(client, dbutils=dbutils, host_override=sql_host_override)
-            probe_source_ct_connection_direct(
-                conn,
-                client.src_db_schema or "dbo",
-                probe_table,
-                print_results=True,
-            )
-            metric, pending, wm, head = resolve_source_ct_for_recon(
-                conn,
-                client,
-                client.src_db_schema or "dbo",
-                probe_table,
-                recon_type=2,
-                verbose=True,
-            )
-            print(f"[CT probe] watermark={wm} head={head} metric={metric} pending={pending}")
-            conn.close()
-        except Exception as exc:
-            print(f"[CT probe] FAILED for {client_nm}: {exc}")
 
 # COMMAND ----------
 
@@ -214,26 +110,25 @@ while True:
         uc_catalog,
         metadata_schema,
         contexts,
-        lookback_hours=lookback_hours,
+        lookback_hours=LOOKBACK_HOURS,
         dbutils=dbutils,
-        use_sql_server_audit=use_sql_server_audit,
-        simplified_recon=simplified_recon,
-        simple_pass_rule=simple_pass_rule,
-        row_count_only_on_flow_complete=row_count_only_on_flow_complete,
-        use_api_update_complete=use_api_update_complete,
+        use_sql_server_audit=USE_SQL_SERVER_AUDIT,
+        simplified_recon=SIMPLIFIED_RECON,
+        simple_pass_rule=SIMPLE_PASS_RULE,
+        row_count_only_on_flow_complete=False,
+        use_api_update_complete=False,
         table_quiesce_sec=table_quiesce_sec,
         row_count_sample_size=row_count_sample_size,
+        row_count_parallel_workers=row_count_parallel_workers,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(
         f"poll {iteration} complete in {poll_elapsed_sec:.1f}s: "
         f"pipelines={totals['pipelines']} "
         f"polled={totals['polled']} skipped={totals['skipped']} "
-        f"new_events={totals['new_events']} "
         f"ct_pending_tables={totals['ct_pending_tables']} "
         f"waiting_tables={totals['waiting_tables']} "
-        f"metrics={totals['metrics']} "
-        f"summaries={totals['summaries']} recon_ready={totals['recon_ready']}"
+        f"recon_ready={totals['recon_ready']}"
     )
     print(f"Sleeping {poll_interval_sec}s...")
     time.sleep(poll_interval_sec)
