@@ -117,17 +117,28 @@ def _pipeline_resource_lines(
         "      permissions:",
         "        - level: CAN_MANAGE",
         "          group_name: ${var.grant_group}",
-        "      tags:",
-        f"        bundle: {pipeline_tag_ref}",
-        "      channel: PREVIEW",
-        "      serverless: false",
-        "      continuous: true",
-        "      development: false",
-        "      configuration:",
-        f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
-        f"      catalog: {uc_catalog_ref}",
-        f"      schema: {pipeline_schema_ref}",
     ]
+    # Pipeline tags are copied to pool-backed cluster custom_tags; never use key "bundle"
+    # (conflicts with instance pool custom_tags if present in the workspace).
+    if not use_instance_pool:
+        lines.extend(
+            [
+                "      tags:",
+                f"        bundle: {pipeline_tag_ref}",
+            ]
+        )
+    lines.extend(
+        [
+            "      channel: PREVIEW",
+            "      serverless: false",
+            "      continuous: true",
+            "      development: false",
+            "      configuration:",
+            f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
+            f"      catalog: {uc_catalog_ref}",
+            f"      schema: {pipeline_schema_ref}",
+        ]
+    )
 
     if tier:
         lines.extend(format_pipeline_cluster_lines(tier, use_instance_pool=use_instance_pool))

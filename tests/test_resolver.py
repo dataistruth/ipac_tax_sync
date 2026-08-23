@@ -114,7 +114,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     )
 
     assert f"schema: {schema_resource_name_ref(dest_schema)}" in yaml_text
-    assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
+    assert "tags:" not in yaml_text
     assert f"destination_schema: ${{resources.schemas.schema_ipc_2025_dev7_15350poc_1.name}}" in yaml_text
     assert dest_schema == "iPC_2025_Dev7_15350poc_1"
     assert "data_staging_options:" not in yaml_text
@@ -198,7 +198,7 @@ def test_generate_yaml_uses_suffix_when_provided():
     )
 
     assert f"schema: {schema_resource_name_ref(dest_schema)}" in yaml_text
-    assert f"bundle: {PIPELINE_TAG_REF}" in yaml_text
+    assert "tags:" not in yaml_text
     assert f"destination_schema: ${{resources.schemas.schema_ipc_2025_dev7_15447_raw.name}}" in yaml_text
     assert "data_staging_options:" not in yaml_text
 
