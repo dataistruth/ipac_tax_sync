@@ -23,6 +23,7 @@ resources:
             node_type_id: Standard_D32s_v3
             spark_version: ${var.pipeline_spark_version}
             num_workers: ${var.pipeline_cluster_num_workers}
+            data_security_mode: SINGLE_USER
             spark_conf:
               spark.databricks.cluster.profile: singleNode
               spark.master: local[32]
@@ -36,8 +37,8 @@ resources:
           notebook_task:
             notebook_path: ${workspace.file_path}/src/common/notebooks/run_ingestion_recon.py
             base_parameters:
-              uc_catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}
-              ipac_metadata_schema: ${resources.schemas.schema_ipac_metadata.name}
+              uc_catalog: ${var.uc_catalog}
+              ipac_metadata_schema: ${var.ipac_metadata_schema}
               pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json
               dest_schema_suffix: ${var.dest_schema_suffix}
               poll_interval_sec: ${var.recon_poll_interval_sec}

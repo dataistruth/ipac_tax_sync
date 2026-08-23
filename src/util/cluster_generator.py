@@ -6,10 +6,12 @@ from pathlib import Path
 
 from util.bundle_config import (
     HEARTBEAT_JOB_ALERT_MAIL_VAR_REF,
+    IPAC_METADATA_SCHEMA_VAR_REF,
     JOB_TAG_VAR_REF,
     PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
     RECON_POLL_INTERVAL_SEC_VAR_REF,
+    UC_CATALOG_VAR_REF,
 )
 from util.cluster_tiers import format_job_cluster_spec_lines
 from util.models import ClusterConfig, ClusterTierName
@@ -68,14 +70,15 @@ def generate_ingestion_recon_job_yaml(
         "              ResourceClass: SingleNode",
         f"              bundle: {JOB_TAG_VAR_REF}",
         "              purpose: sql_recon",
+        "            data_security_mode: SINGLE_USER",
         "      tasks:",
         "        - task_key: run_ingestion_recon",
         f"          job_cluster_key: {RECON_JOB_CLUSTER_KEY}",
         "          notebook_task:",
         "            notebook_path: ${workspace.file_path}/src/common/notebooks/run_ingestion_recon.py",
         "            base_parameters:",
-        "              uc_catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}",
-        "              ipac_metadata_schema: ${resources.schemas.schema_ipac_metadata.name}",
+        f"              uc_catalog: {UC_CATALOG_VAR_REF}",
+        f"              ipac_metadata_schema: {IPAC_METADATA_SCHEMA_VAR_REF}",
         "              pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json",
         "              dest_schema_suffix: ${var.dest_schema_suffix}",
         f"              poll_interval_sec: {RECON_POLL_INTERVAL_SEC_VAR_REF}",
