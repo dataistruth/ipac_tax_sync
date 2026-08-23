@@ -20,7 +20,7 @@ resources:
       job_clusters:
         - job_cluster_key: recon_cluster
           new_cluster:
-            node_type_id: Standard_D64s_v3
+            node_type_id: Standard_D64s_v5
             spark_version: ${var.pipeline_spark_version}
             num_workers: ${var.pipeline_cluster_num_workers}
             spark_conf:

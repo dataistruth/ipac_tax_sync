@@ -34,7 +34,7 @@ variables:
   heartbeat_interval_sec:
     default: 900
   recon_poll_interval_sec:
-    default: 300
+    default: 30
   heartbeat_job_alert_mail:
     default: mukessingh@deloitte.com
   num_of_tables_in_pipeline:
@@ -66,7 +66,7 @@ targets:
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
-      recon_poll_interval_sec: 300
+      recon_poll_interval_sec: 30
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
@@ -85,7 +85,7 @@ targets:
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
-      recon_poll_interval_sec: 300
+      recon_poll_interval_sec: 30
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync

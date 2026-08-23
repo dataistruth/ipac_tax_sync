@@ -20,7 +20,7 @@ dbutils.widgets.text("uc_catalog", "dev7", "UC catalog")
 dbutils.widgets.text("ipac_metadata_schema", "ipac_metadata", "Metadata schema")
 dbutils.widgets.text("pipeline_names_file", "", "pipeline_names.json path")
 dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
-dbutils.widgets.text("poll_interval_sec", "300", "Poll interval (seconds)")
+dbutils.widgets.text("poll_interval_sec", "30", "Poll interval (seconds)")
 dbutils.widgets.text("table_quiesce_sec", "15", "Seconds after SQL CT before Delta write gate")
 dbutils.widgets.text("row_count_sample_size", "5", "Max tables for SQL vs Delta row count")
 dbutils.widgets.text("history_sample_size", "5", "Max tables for DESCRIBE HISTORY per poll")
@@ -30,7 +30,7 @@ uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "dev7"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
 pipeline_names_file = dbutils.widgets.get("pipeline_names_file").strip()
 dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "_poc1"
-poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "300")
+poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "30")
 table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "15")
 row_count_sample_size = int(dbutils.widgets.get("row_count_sample_size").strip() or "5")
 history_sample_size = int(dbutils.widgets.get("history_sample_size").strip() or "5")

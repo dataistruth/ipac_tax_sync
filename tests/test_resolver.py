@@ -104,7 +104,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "development: false" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
-    assert "node_type_id: Standard_D32s_v3" in yaml_text
+    assert "node_type_id: Standard_D32s_v5" in yaml_text
     assert "instance_pool_id:" not in yaml_text
     assert f"spark_version: {SPARK_REF}" in yaml_text
     assert f"num_workers: {NUM_WORKERS_REF}" in yaml_text
@@ -137,7 +137,7 @@ def test_generate_yaml_uses_j3_for_large_client():
         num_of_tables_in_pipeline=1,
         dest_schema_suffix="poc_1",
     )
-    assert "node_type_id: Standard_D64s_v3" in yaml_text
+    assert "node_type_id: Standard_D64s_v5" in yaml_text
     assert "spark.master: local[64]" in yaml_text
     assert "autoscale:" not in yaml_text
 
@@ -155,7 +155,7 @@ def test_generate_yaml_uses_j1_for_small_client():
         num_of_tables_in_pipeline=1,
         dest_schema_suffix="poc_1",
     )
-    assert "node_type_id: Standard_D16s_v3" in yaml_text
+    assert "node_type_id: Standard_D16s_v5" in yaml_text
     assert "spark.master: local[16]" in yaml_text
 
 
