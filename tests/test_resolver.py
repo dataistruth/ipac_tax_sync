@@ -128,15 +128,16 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "single_user_name: ${var.lakeflow_single_user}" in yaml_text
     assert f"min_workers: {AUTOSCALE_MIN_REF}" in yaml_text
     assert f"max_workers: {AUTOSCALE_MAX_REF}" in yaml_text
-    assert "resources.instance_pools.jcp1" in yaml_text
+    depends_on_block = yaml_text.split("depends_on:", 1)[1].split("pipeline_type:", 1)[0]
+    assert "instance_pools" not in depends_on_block
+    assert "depends_on:" in yaml_text
+    assert "resources.schemas.schema_ipac_metadata" in yaml_text
     assert f"spark_version: {SPARK_REF}" in yaml_text
     assert "node_type_id:" not in yaml_text
     assert "num_workers:" not in yaml_text
     assert "spark.master:" not in yaml_text
     assert "ResourceClass: SingleNode" not in yaml_text
     assert "autoscale:" in yaml_text
-    assert "depends_on:" in yaml_text
-    assert "resources.schemas.schema_ipac_metadata" in yaml_text
     assert "event_log:" not in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text

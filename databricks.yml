@@ -21,7 +21,6 @@ include:
   - generated/config/schema/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
-  - resources/instance_pools/*.yml
 
 variables:
   uc_catalog:

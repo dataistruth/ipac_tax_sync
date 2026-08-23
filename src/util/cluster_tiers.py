@@ -46,10 +46,6 @@ def resolve_job_tier_for_client(client: ClientEntry) -> ClusterTierName:
     return expected_job_tier_for_size(client.client_size)
 
 
-def lakeflow_instance_pool_depends_on() -> str:
-    return f"resources.instance_pools.{LAKEFLOW_INSTANCE_POOL_RESOURCE_KEY}"
-
-
 def format_job_cluster_spec_lines(
     tier: ClusterTier,
     *,

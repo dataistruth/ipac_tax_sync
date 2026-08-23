@@ -13,7 +13,6 @@ from util.bundle_config import (
 from util.cluster_tiers import (
     expected_job_tier_for_size,
     format_pipeline_cluster_lines,
-    lakeflow_instance_pool_depends_on,
 )
 from util.schema_generator import schema_resource_key, schema_resource_name_ref
 
@@ -112,29 +111,23 @@ def _pipeline_resource_lines(
         f"    {pipeline_key}:",
         f"      name: {pipeline_key}",
         "      depends_on:",
+        f"        - {meta_dep}",
+        f"        - {client_raw_dep}",
+        "      pipeline_type: MANAGED_INGESTION",
+        "      permissions:",
+        "        - level: CAN_MANAGE",
+        "          group_name: ${var.grant_group}",
+        "      tags:",
+        f"        bundle: {pipeline_tag_ref}",
+        "      channel: PREVIEW",
+        "      serverless: false",
+        "      continuous: true",
+        "      development: false",
+        "      configuration:",
+        f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
+        f"      catalog: {uc_catalog_ref}",
+        f"      schema: {pipeline_schema_ref}",
     ]
-    if use_instance_pool:
-        lines.append(f"        - {lakeflow_instance_pool_depends_on()}")
-    lines.extend(
-        [
-            f"        - {meta_dep}",
-            f"        - {client_raw_dep}",
-            "      pipeline_type: MANAGED_INGESTION",
-            "      permissions:",
-            "        - level: CAN_MANAGE",
-            "          group_name: ${var.grant_group}",
-            "      tags:",
-            f"        bundle: {pipeline_tag_ref}",
-            "      channel: PREVIEW",
-            "      serverless: false",
-            "      continuous: true",
-            "      development: false",
-            "      configuration:",
-            f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
-            f"      catalog: {uc_catalog_ref}",
-            f"      schema: {pipeline_schema_ref}",
-        ]
-    )
 
     if tier:
         lines.extend(format_pipeline_cluster_lines(tier, use_instance_pool=use_instance_pool))

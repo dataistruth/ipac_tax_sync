@@ -23,11 +23,11 @@ resources:
             node_type_id: Standard_D32s_v3
             spark_version: ${var.pipeline_spark_version}
             num_workers: ${var.pipeline_cluster_num_workers}
-            data_security_mode: SINGLE_USER
-            single_user_name: ${var.lakeflow_single_user}
             spark_conf:
               spark.databricks.cluster.profile: singleNode
               spark.master: local[32]
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.lakeflow_single_user}
             custom_tags:
               ResourceClass: SingleNode
               bundle: ${var.job_tag}
