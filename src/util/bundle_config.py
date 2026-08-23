@@ -226,5 +226,5 @@ def pipeline_spark_version_var_ref() -> str:
 
 
 def pipeline_instance_pool_id_ref() -> str:
-    """Bundle reference to the shared ingest instance pool."""
+    """Bundle reference to the dedicated ingest instance pool."""
     return PIPELINE_INSTANCE_POOL_ID_REF

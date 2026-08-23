@@ -41,7 +41,10 @@ def format_pipeline_cluster_lines(
     *,
     instance_pool_ref: str | None = None,
     node_type_ref: str | None = None,
-    data_security_mode: str = "USER_ISOLATION",
+    num_workers_ref: str = "${var.pipeline_cluster_num_workers}",
+    cluster_spark_master_ref: str = "${var.cluster_spark_master}",
+    data_security_mode_ref: str = "${var.cluster_data_security_mode}",
+    dedicated_principal_ref: str = "${var.dedicated_compute_principal}",
 ) -> list[str]:
     """YAML lines for classic (non-serverless) pipeline cluster block."""
     lines = [
@@ -51,6 +54,7 @@ def format_pipeline_cluster_lines(
 
     if instance_pool_ref:
         lines.append(f"          instance_pool_id: {instance_pool_ref}")
+        lines.append(f"          driver_instance_pool_id: {instance_pool_ref}")
     elif node_type_ref:
         lines.append(f"          node_type_id: {node_type_ref}")
         if tier.driver_node_type_id:
@@ -61,9 +65,14 @@ def format_pipeline_cluster_lines(
     lines.extend(
         [
             f"          spark_version: {spark_version_ref}",
-            "          autoscale:",
-            f"            min_workers: {tier.min_workers}",
-            f"            max_workers: {tier.max_workers}",
+            f"          num_workers: {num_workers_ref}",
+            "          spark_conf:",
+            "            spark.databricks.cluster.profile: singleNode",
+            f"            spark.master: {cluster_spark_master_ref}",
+            "          custom_tags:",
+            "            ResourceClass: SingleNode",
+            f"          data_security_mode: {data_security_mode_ref}",
+            f"          single_user_name: {dedicated_principal_ref}",
         ]
     )
     if tier.policy_id:

@@ -1,13 +1,15 @@
-# Shared instance pool for all generated Lakeflow Connect CDC pipelines.
-# Deploy after generated/config/schema/*.yml (pipelines depend_on this pool).
+# Dedicated instance pool for Lakeflow Connect CDC pipelines (on-demand D64, SINGLE_USER clusters).
+# One Standard_D64s_v3 single-node cluster per pipeline (num_workers=0, no autoscale).
 resources:
   instance_pools:
     ipac_ingest_pool:
-      instance_pool_name: ipac_delta_sync_ingest_pool
+      instance_pool_name: ipac_delta_sync_ingest_dedicated_pool
       node_type_id: ${var.pipeline_instance_pool_node_type}
       min_idle_instances: ${var.pipeline_instance_pool_min_idle}
       max_capacity: ${var.pipeline_instance_pool_max_capacity}
       idle_instance_autotermination_minutes: 30
+      azure_attributes:
+        availability: ON_DEMAND_AZURE
       preloaded_spark_versions:
         - ${var.pipeline_spark_version}
       permissions:

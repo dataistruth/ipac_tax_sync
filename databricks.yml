@@ -77,27 +77,45 @@ variables:
   pipeline_cluster_node_type:
     default: Standard_DS3_v2
     description: Deprecated fallback when instance pool is disabled (prefer pipeline_instance_pool_node_type)
+  cluster_data_security_mode:
+    default: SINGLE_USER
+    description: Dedicated compute access mode (SINGLE_USER); legacy alias for DATA_SECURITY_MODE_DEDICATED
+  dedicated_compute_principal:
+    default: ipacs_dev_team
+    description: User email or group name assigned to dedicated compute (group = dedicated group access)
   pipeline_instance_pool_node_type:
-    default: Standard_D32s_v3
-    description: Azure D-series node type for shared ingest instance pool (32 vCPU)
+    default: Standard_D64s_v3
+    description: Azure D-series node type for dedicated ingest/recon instance pools (64 vCPU)
   pipeline_instance_pool_min_idle:
     default: 4
-    description: Minimum idle VMs kept warm in the shared ingest instance pool
+    description: Minimum idle VMs kept warm in the ingest dedicated instance pool
   pipeline_instance_pool_max_capacity:
-    default: 8
-    description: Maximum outstanding VMs in the shared ingest instance pool (idle + in-use)
+    default: 16
+    description: Maximum outstanding VMs in the ingest pool (one D64 per pipeline cluster)
+  sql_recon_instance_pool_min_idle:
+    default: 1
+    description: Minimum idle VMs in the recon dedicated instance pool
+  sql_recon_instance_pool_max_capacity:
+    default: 2
+    description: Maximum outstanding VMs in the recon pool (dedicated recon cluster)
+  pipeline_cluster_num_workers:
+    default: 0
+    description: Pipeline cluster workers (0 = single-node D64 per pipeline)
+  cluster_spark_master:
+    default: local[64]
+    description: spark.master for single-node pipeline and recon clusters on D64
   pipeline_spark_version:
     default: 15.4.x-scala2.12
     description: Spark runtime for generated Lakeflow pipeline clusters and pool preload
   sql_recon_node_type_id:
-    default: Standard_D32s_v3
-    description: Shared SQL/recon cluster node type (32 vCPU single-node)
+    default: Standard_D64s_v3
+    description: Deprecated fallback when recon pool disabled (prefer instance pool)
   sql_recon_spark_version:
     default: 15.4.x-scala2.12
-    description: Spark runtime for shared SQL Server recon cluster
+    description: Spark runtime for dedicated SQL Server recon cluster
   sql_recon_autotermination_minutes:
     default: 0
-    description: Auto-termination for ipac_sql_recon_shared (0 = disabled for continuous recon job)
+    description: Auto-termination for ipac_sql_recon_dedicated (0 = disabled for continuous recon job)
 
 targets:
   # Deploy with: databricks bundle deploy -t dev
@@ -124,10 +142,16 @@ targets:
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
       num_of_tables_in_pipeline: 10
-      pipeline_instance_pool_node_type: Standard_D32s_v3
+      pipeline_instance_pool_node_type: Standard_D64s_v3
       pipeline_instance_pool_min_idle: 4
-      pipeline_instance_pool_max_capacity: 8
-      sql_recon_node_type_id: Standard_D32s_v3
+      pipeline_instance_pool_max_capacity: 16
+      sql_recon_instance_pool_min_idle: 1
+      sql_recon_instance_pool_max_capacity: 2
+      pipeline_cluster_num_workers: 0
+      cluster_spark_master: local[64]
+      cluster_data_security_mode: SINGLE_USER
+      dedicated_compute_principal: ipacs_dev_team
+      sql_recon_node_type_id: Standard_D64s_v3
       sql_recon_spark_version: 15.4.x-scala2.12
       sql_recon_autotermination_minutes: 0
 
@@ -147,10 +171,16 @@ targets:
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
-      pipeline_instance_pool_node_type: Standard_D32s_v3
+      pipeline_instance_pool_node_type: Standard_D64s_v3
       pipeline_instance_pool_min_idle: 4
-      pipeline_instance_pool_max_capacity: 8
-      sql_recon_node_type_id: Standard_D32s_v3
+      pipeline_instance_pool_max_capacity: 16
+      sql_recon_instance_pool_min_idle: 1
+      sql_recon_instance_pool_max_capacity: 2
+      pipeline_cluster_num_workers: 0
+      cluster_spark_master: local[64]
+      cluster_data_security_mode: SINGLE_USER
+      dedicated_compute_principal: ipacs_dev_team
+      sql_recon_node_type_id: Standard_D64s_v3
       sql_recon_spark_version: 15.4.x-scala2.12
       sql_recon_autotermination_minutes: 0
 

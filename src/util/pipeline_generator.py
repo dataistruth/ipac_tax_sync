@@ -232,8 +232,8 @@ def generate_client_pipelines_yaml(
         job_tier_key = expected_job_tier_for_size(client.client_size)
         tier_note = (
             f"# client_size: {client.client_size} → job tier {job_tier_key} ({tier.label}) — "
-            f"{tier.description} (autoscale {tier.min_workers}-{tier.max_workers} workers); "
-            f"VMs from shared instance pool {instance_pool_ref}"
+            f"{tier.description}; dedicated SINGLE_USER D64 node per pipeline; "
+            f"VMs from dedicated instance pool {instance_pool_ref}"
         )
 
     batch_summary = ", ".join(str(len(b)) for b in batches)

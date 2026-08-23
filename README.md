@@ -42,20 +42,23 @@ Six named profiles in `config/common/cluster_config.json`:
 | `j2` | Job cluster medium | 2–4 | `client_size: medium` |
 | `j3` | Job cluster large | 4–8 | `client_size: large` |
 
-Lakeflow Connect CDC pipelines use **classic compute** with a **shared instance pool** (`resources/instance_pools/ipac_ingest_pool.yml`). Generated YAML sets `serverless: false` and attaches each pipeline cluster to the pool:
+Lakeflow Connect CDC pipelines use **classic dedicated compute** with a **dedicated instance pool** (`resources/instance_pools/ipac_ingest_pool.yml`). Generated YAML sets `serverless: false`, `data_security_mode: SINGLE_USER`, and attaches each pipeline cluster to the pool (driver + worker pool IDs):
 
 ```yaml
 clusters:
   - label: default
     instance_pool_id: ${resources.instance_pools.ipac_ingest_pool.id}
+    driver_instance_pool_id: ${resources.instance_pools.ipac_ingest_pool.id}
     spark_version: ${var.pipeline_spark_version}
-    data_security_mode: USER_ISOLATION
-    autoscale:
-      min_workers: 2   # from j2 in cluster_config.json
-      max_workers: 4
+    data_security_mode: SINGLE_USER
+    single_user_name: ${var.dedicated_compute_principal}
+    num_workers: 0
+    spark_conf:
+      spark.databricks.cluster.profile: singleNode
+      spark.master: local[64]
 ```
 
-Pool defaults in `databricks.yml`: `Standard_D32s_v3` (32 vCPU D-series), `min_idle_instances: 4`, `max_capacity: 8`.
+Pool defaults in `databricks.yml`: `Standard_D64s_v3` (64 vCPU), on-demand Azure VMs, `min_idle_instances: 4`, `max_capacity: 16`.
 
 Set Spark version in `variables.pipeline_spark_version`. Classic compute and instance pools require the bundle **direct deployment engine** (`bundle.engine: direct` in `databricks.yml`).
 
@@ -178,7 +181,8 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 
 - `generated/config/schema/ipac_metadata_schema.yml` — shared metadata schema (bundle deploy; uses `${var.uc_catalog}` + `${var.ipac_metadata_schema}`)
 - `generated/config/schema/<client_nm>_schema.yml` — per-client raw + Lakeflow staging schema (bundle deploy)
-- `resources/instance_pools/ipac_ingest_pool.yml` — shared D32 instance pool for all pipeline clusters
+- `resources/instance_pools/ipac_ingest_pool.yml` — dedicated D64 ingest instance pool (on-demand)
+- `resources/instance_pools/ipac_recon_pool.yml` — dedicated D64 recon instance pool
 - `generated/bundle/<client_nm>_pipeline.yml` — pipelines (`depends_on` metadata schema, client schema, instance pool)
 
 **Bundle deploy order** (`databricks.yml` include + pipeline `depends_on`):
@@ -224,7 +228,7 @@ Deploy:
 databricks bundle deploy -t dev
 ```
 
-Start each continuous pipeline from the Databricks UI or `databricks pipelines start` after deploy. All pipeline clusters use the shared instance pool (`ipac_ingest_pool`).
+Start each continuous pipeline from the Databricks UI or `databricks pipelines start` after deploy. All pipeline clusters use the dedicated ingest instance pool (`ipac_ingest_pool`).
 
 ### Heartbeat + restart jobs
 
@@ -240,7 +244,7 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 ### Ingestion flow metrics reconciliation
 
-Job `j_ipac_delta_sync_ingestion_recon_monitor` runs on **`ipac_sql_recon_shared`** (32 vCPU single-node). The notebook installs **`mssql-python`** via `%pip`.
+Job `j_ipac_delta_sync_ingestion_recon_monitor` runs on **`ipac_sql_recon_dedicated`** (64 vCPU single-node, SINGLE_USER). The notebook installs **`mssql-python`** via `%pip`.
 
 Continuous loop in `run_ingestion_recon.py`: poll ingestion event log → read CT watermarks from SQL Server (`ipac_metadata.dbo`) → run CT counts for `recon_type` 2/3 → write `recon_ready` + `process_log`.
 
@@ -252,7 +256,7 @@ Test SQL connectivity first: `src/common/notebooks/test_mssql_python.py`
 
 Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
 
-Attach ad-hoc SQL/CT probe notebooks to the same cluster in the UI (Compute → `ipac_sql_recon_shared`).
+Attach ad-hoc SQL/CT probe notebooks to the same cluster in the UI (Compute → `ipac_sql_recon_dedicated`).
 
 Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_ct_ops.py`, `source_ct_direct.py`, `recon_store.py`, `sql_server_audit_store.py`.
 

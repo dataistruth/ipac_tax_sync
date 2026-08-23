@@ -1,21 +1,22 @@
-# Shared cluster for SQL Server CT recon notebooks + continuous recon job.
-# SQL connectivity: mssql-python + pydantic v2 installed via %pip in run_ingestion_recon.py (no init script).
+# Dedicated SQL Server CT recon cluster — single D64 from ipac_recon_pool (SINGLE_USER, no autoscale).
 
 resources:
   clusters:
     ipac_sql_recon_cluster:
-      cluster_name: ipac_sql_recon_shared
+      cluster_name: ipac_sql_recon_dedicated
       spark_version: ${var.sql_recon_spark_version}
-      node_type_id: ${var.sql_recon_node_type_id}
-      num_workers: 0
+      instance_pool_id: ${resources.instance_pools.ipac_recon_pool.id}
+      driver_instance_pool_id: ${resources.instance_pools.ipac_recon_pool.id}
+      num_workers: ${var.pipeline_cluster_num_workers}
       spark_conf:
         spark.databricks.cluster.profile: singleNode
-        spark.master: local[32]
+        spark.master: ${var.cluster_spark_master}
       custom_tags:
         bundle: ${var.job_tag}
         purpose: sql_recon
         ResourceClass: SingleNode
-      data_security_mode: USER_ISOLATION
+      data_security_mode: ${var.cluster_data_security_mode}
+      single_user_name: ${var.dedicated_compute_principal}
       runtime_engine: STANDARD
       autotermination_minutes: ${var.sql_recon_autotermination_minutes}
       enable_elastic_disk: true
