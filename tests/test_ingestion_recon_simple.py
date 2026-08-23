@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from common.ops.ingestion_recon_ops import (
     build_database_tables_json,
+    client_db_recon_key,
     count_delta_table_rows,
     evaluate_ct_delta_history_recon,
     evaluate_ct_row_count_recon,
@@ -13,6 +14,7 @@ from common.ops.ingestion_recon_ops import (
     evaluate_ct_delta_timestamp_recon,
     evaluate_table_refresh_after_ct_detected,
     evaluate_table_refresh_after_sql_ct,
+    group_pipeline_contexts_by_client,
     select_disjoint_history_sample_tables,
     prefetch_row_count_samples,
     select_row_count_sample_tables,
@@ -20,7 +22,7 @@ from common.ops.ingestion_recon_ops import (
     summarize_delta_history_refresh,
     SimplifiedTableOutcome,
 )
-from common.ops.lakeflow_event_ops import FlowSummaryRow
+from common.ops.lakeflow_event_ops import build_pipeline_recon_context, FlowSummaryRow, TableReconConfig
 from common.ops.recon_store import FlowMetricsRow, resolve_uc_table_ref, UcTableRef, is_streaming_uc_table
 from common.ops.sql_server_audit_store import CtPendingCounts, PendingCtTable
 from datetime import datetime, timedelta, timezone
@@ -74,6 +76,72 @@ def test_build_database_tables_json():
     assert payload["tables"][0]["table_name"] == "K1Input_Snapshot"
     assert payload["tables"][0]["pending_total"] == 50000
     assert payload["tables"][0]["delta_version"] == 20
+
+
+def test_build_database_tables_json_includes_pipeline_keys():
+    probe = PendingCtTable(
+        schema_name="dbo",
+        table_name="T1",
+        watermark_before=1,
+        ct_head_version=2,
+        pending=CtPendingCounts(inserts=1),
+    )
+    outcome = SimplifiedTableOutcome(
+        table_nm="T1",
+        schema_name="dbo",
+        recon_type=1,
+        probe=probe,
+        status="PASS",
+        message="ok",
+    )
+    payload = json.loads(
+        build_database_tables_json(
+            [outcome],
+            pipeline_keys=["p_client_1", "p_client_2", "p_client_3"],
+        )
+    )
+    assert payload["pipeline_keys"] == ["p_client_1", "p_client_2", "p_client_3"]
+
+
+def test_group_pipeline_contexts_by_client_merges_pipelines():
+    client = MagicMock()
+    client.client_nm = "iPC_2025_Dev7_15447"
+    client.src_db_nm = "iPC_2025_Dev7_15447"
+    cfg_a = build_pipeline_recon_context(
+        "p_iPC_2025_Dev7_15447_1",
+        [
+            TableReconConfig(
+                table_nm="T1",
+                recon_type=1,
+                destination_schema="raw",
+                destination_table="T1",
+            )
+        ],
+    )
+    cfg_b = build_pipeline_recon_context(
+        "p_iPC_2025_Dev7_15447_2",
+        [
+            TableReconConfig(
+                table_nm="T2",
+                recon_type=1,
+                destination_schema="raw",
+                destination_table="T2",
+            )
+        ],
+    )
+    contexts = [
+        (cfg_a, client.src_db_nm, "dbo", client),
+        (cfg_b, client.src_db_nm, "dbo", client),
+    ]
+    bundles = group_pipeline_contexts_by_client(contexts)
+    assert len(bundles) == 1
+    bundle = bundles[0]
+    assert bundle.pipeline_keys == [
+        "p_iPC_2025_Dev7_15447_1",
+        "p_iPC_2025_Dev7_15447_2",
+    ]
+    assert bundle.ctx.pipeline_key == client_db_recon_key(client.client_nm)
+    assert {t.table_nm for t in bundle.ctx.tables} == {"T1", "T2"}
 
 
 def test_select_row_count_sample_tables():

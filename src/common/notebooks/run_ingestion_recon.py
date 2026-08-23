@@ -2,7 +2,9 @@
 # MAGIC %md
 # MAGIC # Ingestion reconciliation (CT + recon_type routing)
 # MAGIC
-# MAGIC Polls SQL Server Change Tracking for **CT-changed tables only**:
+# MAGIC Polls SQL Server Change Tracking at **client src_db level** (one recon per DB).
+# MAGIC Multiple Lakeflow pipelines per client are listed for visibility; recon runs on
+# MAGIC **all active tables** for that client, not per pipeline serial.
 # MAGIC - **recon_type 2** (snapshot tables) → SQL `COUNT_BIG` vs Delta row count
 # MAGIC - **recon_type 1** (and other) → Delta `last_write` after `sql_ct_reference_at + quiesce_sec`
 # MAGIC
@@ -66,6 +68,7 @@ from util.config_loader import get_client, load_client_overrides, load_common_ta
 from util.resolver import resolve_effective_tables
 from common.ops.ingestion_recon_ops import (
     build_contexts_for_client,
+    group_pipeline_contexts_by_client,
     load_pipeline_names,
     run_all_pipeline_recon,
     RowCountVerified,
@@ -97,7 +100,16 @@ for client_nm in client_names:
     keys_for_client = [k for k in pipeline_keys if client_nm in k]
     contexts.extend(build_contexts_for_client(client, tables, dest_schema_suffix, keys_for_client))
 
-print(f"Monitoring {len(contexts)} pipeline(s) for {len(client_names)} client(s)")
+client_db_bundles = group_pipeline_contexts_by_client(contexts)
+print(
+    f"Monitoring {len(client_db_bundles)} client DB(s), "
+    f"{len(pipeline_keys)} Lakeflow pipeline(s)"
+)
+for bundle in client_db_bundles:
+    print(
+        f"  client={bundle.client.client_nm} sql_db={bundle.client.src_db_nm} "
+        f"pipelines={bundle.pipeline_keys} active_tables={len(bundle.ctx.tables)}"
+    )
 
 # COMMAND ----------
 

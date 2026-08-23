@@ -17,6 +17,7 @@ from common.ops.lakeflow_event_ops import (
     evaluate_recon,
     ingestion_recon_event_extract_sql,
     parse_flow_progress_event,
+    PipelineReconContext,
     resolve_table_from_flow_name,
     TableReconConfig,
 )
@@ -90,6 +91,78 @@ def table_configs_from_effective(
             )
         )
     return configs
+
+
+def client_db_recon_key(client_nm: str) -> str:
+    """Logical recon key for one client source DB (not per Lakeflow pipeline serial)."""
+    return f"client_{client_nm}"
+
+
+@dataclass
+class ClientDbReconBundle:
+    """One recon unit per client / src_db — may cover multiple Lakeflow pipelines."""
+
+    client: Any
+    ctx: PipelineReconContext
+    src_catalog: str
+    src_schema: str
+    pipeline_keys: list[str]
+
+
+def group_pipeline_contexts_by_client(
+    pipeline_contexts: list[tuple[Any, str, str, Any]],
+) -> list[ClientDbReconBundle]:
+    """Merge per-pipeline contexts into one bundle per client (union active tables)."""
+    grouped: dict[str, list[tuple[Any, str, str, Any]]] = {}
+    for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
+        grouped.setdefault(ipac_client.client_nm, []).append(
+            (ctx, src_catalog, src_schema, ipac_client)
+        )
+
+    bundles: list[ClientDbReconBundle] = []
+    for client_nm in sorted(grouped.keys()):
+        items = grouped[client_nm]
+        ipac_client = items[0][3]
+        src_catalog = items[0][1]
+        src_schema = items[0][2]
+        pipeline_keys = sorted(
+            {normalize_pipeline_key(item[0].pipeline_key) for item in items}
+        )
+        table_by_nm: dict[str, TableReconConfig] = {}
+        for item in items:
+            for cfg in item[0].tables:
+                table_by_nm[cfg.table_nm] = cfg
+        ctx = build_pipeline_recon_context(
+            client_db_recon_key(client_nm),
+            list(table_by_nm.values()),
+            pipeline_name=client_nm,
+        )
+        bundles.append(
+            ClientDbReconBundle(
+                client=ipac_client,
+                ctx=ctx,
+                src_catalog=src_catalog,
+                src_schema=src_schema,
+                pipeline_keys=pipeline_keys,
+            )
+        )
+    return bundles
+
+
+def _client_db_recon_work_items(
+    pipeline_contexts: list[tuple[Any, str, str, Any]],
+    *,
+    client_db_level: bool,
+) -> list[tuple[Any, str, str, Any, list[str]]]:
+    if client_db_level:
+        return [
+            (b.ctx, b.src_catalog, b.src_schema, b.client, b.pipeline_keys)
+            for b in group_pipeline_contexts_by_client(pipeline_contexts)
+        ]
+    return [
+        (ctx, src_catalog, src_schema, ipac_client, [ctx.pipeline_key])
+        for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts
+    ]
 
 
 def resolve_pipeline_id(pipeline_key: str, client: DatabricksRestClient | None = None) -> str:
@@ -1223,8 +1296,13 @@ def _table_entry_for_json(outcome: SimplifiedTableOutcome) -> dict[str, Any]:
     }
 
 
-def build_database_tables_json(outcomes: list[SimplifiedTableOutcome]) -> str:
-    payload = {"tables": [_table_entry_for_json(o) for o in outcomes]}
+def build_database_tables_json(
+    outcomes: list[SimplifiedTableOutcome],
+    pipeline_keys: list[str] | None = None,
+) -> str:
+    payload: dict[str, Any] = {"tables": [_table_entry_for_json(o) for o in outcomes]}
+    if pipeline_keys:
+        payload["pipeline_keys"] = sorted(pipeline_keys)
     return json.dumps(payload, default=str)
 
 
@@ -1239,6 +1317,7 @@ def build_database_recon_ready_row(
     ct_head_version: int | None,
     completed_at: datetime,
     total_ingestion_sec: int | None = None,
+    pipeline_keys: list[str] | None = None,
 ) -> ReconReadyRow:
     source_total = sum(
         o.probe.pending.metric_for_recon_type(o.recon_type) for o in outcomes
@@ -1258,7 +1337,7 @@ def build_database_recon_ready_row(
         completed_at=completed_at,
         artifact_run_id=update_id,
         ready_for_calc=True,
-        tables_json=build_database_tables_json(outcomes),
+        tables_json=build_database_tables_json(outcomes, pipeline_keys=pipeline_keys),
         ct_watermark_before=ct_watermark_before,
         ct_head_version=ct_head_version,
         total_ingestion_sec=total_ingestion_sec,
@@ -1384,6 +1463,7 @@ def run_simplified_pipeline_recon(
     history_sample_size: int = 5,
     uc_parallel_workers: int = 10,
     pending_ct_tables: list[PendingCtTable] | None = None,
+    pipeline_keys: list[str] | None = None,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -1394,12 +1474,17 @@ def run_simplified_pipeline_recon(
         ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key)
 
     active_tables = [cfg.table_nm for cfg in ctx.tables]
+    pipeline_label = (
+        f"pipelines={pipeline_keys} ({len(pipeline_keys)} pipeline(s))"
+        if pipeline_keys and len(pipeline_keys) > 1
+        else f"pipeline={ctx.pipeline_key}"
+    )
     if pass_rule == "ct_row_count":
         api_snap = {}
         api_update_complete = False
         print(
-            f"[recon] pipeline={ctx.pipeline_key} client={client.client_nm} "
-            f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
+            f"[recon] client={client.client_nm} sql_db={client.src_db_nm} "
+            f"{pipeline_label} pipeline_id={ctx.pipeline_id or 'n/a'} "
             f"active_tables={len(active_tables)} pass_rule=ct_row_count "
             f"(recon_type 2=row_count, else=delta_ts after sql_ct_reference) "
             f"row_count_sample_size={row_count_sample_size} "
@@ -2188,13 +2273,11 @@ def run_simplified_pipeline_recon(
         )
     elif batch_pass and len(batch_pass) == len(table_outcomes):
         if (
-            pipeline_id
-            and ct_head_version is not None
+            ct_head_version is not None
             and recon_database_already_recorded(
                 spark,
                 catalog,
                 metadata_schema,
-                pipeline_id,
                 client.src_db_nm,
                 ct_head_version,
             )
@@ -2227,6 +2310,7 @@ def run_simplified_pipeline_recon(
                 ct_head_version=ct_head_version,
                 completed_at=completed_at,
                 total_ingestion_sec=total_ingestion_sec,
+                pipeline_keys=pipeline_keys,
             )
             try:
                 written = write_recon_ready_rows(
@@ -2403,23 +2487,20 @@ def recon_database_already_recorded(
     spark,
     catalog: str,
     metadata_schema: str,
-    pipeline_id: str,
     database_name: str,
     ct_head_version: int,
 ) -> bool:
     """
-    Idempotency for one DB-level recon_ready per reconciled CT head.
+    Idempotency for one DB-level recon_ready per reconciled CT head (client src_db).
 
-    Continuous Lakeflow pipelines reuse the same update_id for hours; keying only
-    on update_id blocks every subsequent batch after the first PASS.
+    Keyed by database_name + ct_head_version — not per Lakeflow pipeline.
     """
     target = qualified_table(catalog, metadata_schema, RECON_READY_TABLE)
     try:
         rows = spark.sql(
             f"""
             SELECT 1 FROM {target}
-            WHERE pipeline_id = '{pipeline_id.replace("'", "''")}'
-              AND database_name = '{database_name.replace("'", "''")}'
+            WHERE database_name = '{database_name.replace("'", "''")}'
               AND ct_head_version = {int(ct_head_version)}
               AND flow_name = '{DATABASE_RECON_FLOW_NAME.replace("'", "''")}'
             LIMIT 1
@@ -2754,14 +2835,30 @@ def run_all_pipeline_recon(
     if delta_history_verified_cache is None:
         delta_history_verified_cache = {}
 
-    for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
-        totals["pipelines"] += 1
+    client_db_level = ct_row_count_mode or simplified_recon
+    work_items = _client_db_recon_work_items(
+        pipeline_contexts,
+        client_db_level=client_db_level,
+    )
+
+    for ctx, src_catalog, src_schema, ipac_client, pipeline_keys in work_items:
+        totals["pipelines"] += len(pipeline_keys)
+        if client_db_level and len(pipeline_keys) > 0:
+            print(
+                f"[recon] client={ipac_client.client_nm} sql_db={ipac_client.src_db_nm} "
+                f"pipelines={pipeline_keys} ({len(pipeline_keys)} pipeline(s), "
+                f"client-db recon, active_tables={len(ctx.tables)})"
+            )
         if not ctx.pipeline_id:
-            if rest_client is not None:
-                ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
-            else:
-                ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key)
-        if not ctx.pipeline_id:
+            for pk in pipeline_keys:
+                if rest_client is not None:
+                    pid = resolve_pipeline_id(pk, rest_client)
+                else:
+                    pid = resolve_pipeline_id(pk)
+                if pid:
+                    ctx.pipeline_id = pid
+                    break
+        if not ctx.pipeline_id and not ct_row_count_mode:
             print(f"{ctx.pipeline_key}: SKIP no pipeline_id")
             totals["skipped"] += 1
             continue
@@ -2926,6 +3023,7 @@ def run_all_pipeline_recon(
                 history_sample_size=history_sample_size,
                 uc_parallel_workers=row_count_parallel_workers,
                 pending_ct_tables=ct_pending_probe if ct_pending_probe else None,
+                pipeline_keys=pipeline_keys,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n
