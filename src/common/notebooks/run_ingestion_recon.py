@@ -67,6 +67,7 @@ if src_root not in sys.path:
 from util.config_loader import get_client, load_client_overrides, load_common_tables
 from util.resolver import resolve_effective_tables
 from common.ops.ingestion_recon_ops import (
+    RECON_BUILD_ID,
     build_contexts_for_client,
     group_pipeline_contexts_by_client,
     load_pipeline_names,
@@ -74,8 +75,11 @@ from common.ops.ingestion_recon_ops import (
     RowCountVerified,
     DeltaHistoryVerified,
 )
+from common.ops.pipeline_names import normalize_pipeline_key
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
 from common.ops.recon_store import ensure_recon_ready_table
+
+print(f"recon_ops_build              : {RECON_BUILD_ID}")
 
 ensure_recon_ready_table(spark, uc_catalog, metadata_schema)
 
@@ -97,7 +101,11 @@ for client_nm in client_names:
     client = get_client(client_nm)
     overrides = load_client_overrides(client_nm)
     tables = resolve_effective_tables(client, catalog, overrides)
-    keys_for_client = [k for k in pipeline_keys if client_nm in k]
+    keys_for_client = [
+        k
+        for k in pipeline_keys
+        if client_nm.casefold() in normalize_pipeline_key(k).casefold()
+    ]
     contexts.extend(build_contexts_for_client(client, tables, dest_schema_suffix, keys_for_client))
 
 client_db_bundles = group_pipeline_contexts_by_client(contexts)

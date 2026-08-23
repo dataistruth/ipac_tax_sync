@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Restart failed continuous Lakeflow pipelines
 # MAGIC
-# MAGIC Continuous job: reads latest `process_log` ingest rows for monitored `p_*` pipelines.
+# MAGIC Continuous job: reads latest `process_log` ingest rows per **individual** `p_*` pipeline.
 # MAGIC When status is FAILED and no active pipeline update is running, sends an alert email
 # MAGIC to `heartbeat_job_alert_mail` and requests a pipeline restart.
 

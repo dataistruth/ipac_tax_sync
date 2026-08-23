@@ -40,9 +40,10 @@ from util.paths import (
 )
 from util.schema_generator import write_client_schema_resource_yaml, write_ipac_metadata_schema_resource_yaml
 from util.pipeline_generator import (
-    chunk_tables,
     generate_client_pipelines_yaml,
     pipeline_resource_key,
+    pipeline_serial_for_batch,
+    split_tables_for_pipelines,
     write_bundle_pipeline_yaml,
 )
 from util.metadata_table_generator import write_process_log_table_sql, write_recon_tables_sql
@@ -186,6 +187,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     use_instance_pool = resolve_pipeline_use_instance_pool(
         target=getattr(args, "target", None),
     )
+    pipeline_split_mode = getattr(args, "split", "count")
     schema_dir = generated_schema_dir()
     config_schema_dir = generated_config_schema_dir()
     config_dir = generated_config_dir()
@@ -223,6 +225,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         dest_schema_suffix=dest_schema_suffix,
                         pipeline_tag_ref=pipeline_tag_ref,
                         use_instance_pool=use_instance_pool,
+                        pipeline_split_mode=pipeline_split_mode,
                     )
                 )
                 print()
@@ -235,7 +238,10 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 output_dir=config_schema_dir,
                 uc_catalog_ref=uc_catalog_ref,
             )
-            _log(f"--- {client.client_nm}: writing bundle pipeline YAML ({len(tables)} tables)...")
+            _log(
+                f"--- {client.client_nm}: writing bundle pipeline YAML "
+                f"({len(tables)} tables, split={pipeline_split_mode})..."
+            )
             bundle_path = write_bundle_pipeline_yaml(
                 client,
                 tables,
@@ -248,12 +254,24 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 pipeline_tag_ref=pipeline_tag_ref,
                 metadata_schema=metadata_schema,
                 use_instance_pool=use_instance_pool,
+                pipeline_split_mode=pipeline_split_mode,
             )
-            pipeline_batches = chunk_tables(tables, num_tables)
-            generated_pipeline_names.extend(
-                pipeline_resource_key(client.client_nm, serial)
-                for serial in range(1, len(pipeline_batches) + 1)
+            pipeline_batches = split_tables_for_pipelines(
+                tables,
+                num_tables,
+                split_mode=pipeline_split_mode,
             )
+            count_serial = 0
+            for batch in pipeline_batches:
+                count_serial += 1
+                serial = pipeline_serial_for_batch(
+                    batch,
+                    split_mode=pipeline_split_mode,
+                    count_serial=count_serial,
+                )
+                generated_pipeline_names.append(
+                    pipeline_resource_key(client.client_nm, serial)
+                )
             _log(f"--- {client.client_nm}: writing SQL scripts...")
             enable_path, ct_grant_path, cdc_grant_path, status_path = write_source_replication_sql(
                 client,
@@ -264,7 +282,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             print(f"Generated {schema_resource_path}", flush=True)
             print(
                 f"Generated {bundle_path} ({len(tables)} tables, "
-                f"{len(pipeline_batches)} pipeline(s), batch={num_tables})",
+                f"{len(pipeline_batches)} pipeline(s), split={pipeline_split_mode}"
+                + (f", batch={num_tables}" if pipeline_split_mode == "count" else ""),
                 flush=True,
             )
             print(f"Generated {enable_path}", flush=True)
@@ -339,7 +358,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate_p.add_argument(
         "--target",
-        help="databricks.yml target name when resolving bundle variable defaults",
+        help="databricks.yml target name when resolving bundle variable defaults (e.g. dev, prod)",
+    )
+    generate_p.add_argument(
+        "--split",
+        choices=("count", "recon"),
+        default="count",
+        help=(
+            "Pipeline split strategy: count = chunk by num_of_tables_in_pipeline (default); "
+            "recon = one pipeline per recon_type (1, 2, 3)"
+        ),
     )
     generate_p.add_argument(
         "--num-of-tables",

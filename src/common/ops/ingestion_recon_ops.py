@@ -1245,6 +1245,21 @@ PASS_RULES_DELTA_HISTORY = frozenset(
 
 DATABASE_RECON_FLOW_NAME = "__database_recon__"
 DATABASE_RECON_TABLE_NM = "__database__"
+RECON_BUILD_ID = "client-db-level-2026-08-23"
+
+
+def _client_recon_log_label(client: Any, pipeline_keys: list[str]) -> str:
+    if len(pipeline_keys) > 1:
+        return (
+            f"client={client.client_nm} sql_db={client.src_db_nm} "
+            f"pipelines={pipeline_keys}"
+        )
+    if pipeline_keys:
+        return (
+            f"client={client.client_nm} sql_db={client.src_db_nm} "
+            f"pipeline={pipeline_keys[0]}"
+        )
+    return f"client={client.client_nm} sql_db={client.src_db_nm}"
 
 
 @dataclass
@@ -2895,9 +2910,9 @@ def run_all_pipeline_recon(
                 )
                 discover_elapsed = time.perf_counter() - discover_start
                 print(
-                    f"[recon] {ctx.pipeline_key}: CT discover batch "
-                    f"configured={len(active_tables)} pending={len(ct_pending_probe)} "
-                    f"elapsed={discover_elapsed:.1f}s "
+                    f"[recon] {_client_recon_log_label(ipac_client, pipeline_keys)}: "
+                    f"CT discover configured={len(active_tables)} "
+                    f"pending={len(ct_pending_probe)} elapsed={discover_elapsed:.1f}s "
                     f"(1 watermark IN + 1 CHANGETABLE UNION)"
                 )
                 if (
@@ -2913,16 +2928,22 @@ def run_all_pipeline_recon(
                     )
                     if detected is not None:
                         print(
-                            f"[recon] {ctx.pipeline_key}: DB CT batch queue "
-                            f"ct_head={ct_pending_probe[0].ct_head_version} "
+                            f"[recon] {_client_recon_log_label(ipac_client, pipeline_keys)}: "
+                            f"DB CT batch queue ct_head={ct_pending_probe[0].ct_head_version} "
                             f"first_detected={detected.isoformat()}"
                         )
                 probe_conn.close()
             except Exception as exc:
-                print(f"{ctx.pipeline_key}: WARN CT probe failed: {exc}")
+                print(
+                    f"[recon] {_client_recon_log_label(ipac_client, pipeline_keys)}: "
+                    f"WARN CT probe failed: {exc}"
+                )
 
             if not ct_pending_probe:
-                print(f"{ctx.pipeline_key}: SKIP no pending CT on configured tables")
+                print(
+                    f"[recon] {_client_recon_log_label(ipac_client, pipeline_keys)}: "
+                    "SKIP no pending CT on configured tables"
+                )
                 totals["skipped"] += 1
                 continue
 
@@ -3083,7 +3104,7 @@ def build_contexts_for_client(
         pipeline_key = normalize_pipeline_key(key)
         if not pipeline_key.startswith("p_"):
             continue
-        if client.client_nm not in pipeline_key:
+        if client.client_nm.casefold() not in pipeline_key.casefold():
             continue
         ctx = build_pipeline_recon_context(pipeline_key, table_cfgs)
         out.append((ctx, src_catalog, src_schema, client))

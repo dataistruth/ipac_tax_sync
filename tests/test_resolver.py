@@ -22,9 +22,13 @@ from util.config_loader import (
     load_cluster_config,
     load_common_tables,
 )
+from util.models import EffectiveTable
 from util.pipeline_generator import (
     chunk_tables,
+    chunk_tables_by_recon_type,
     generate_client_pipelines_yaml,
+    pipeline_serial_for_batch,
+    split_tables_for_pipelines,
 )
 from util.pipeline_registry import write_pipeline_name_registry
 from util.resolver import resolve_effective_tables
@@ -204,10 +208,72 @@ def test_generate_yaml_uses_suffix_when_provided():
 
 
 def test_chunk_tables_respects_batch_size():
-    batches = chunk_tables(list(range(203)), 5)
+    tables = [
+        EffectiveTable(
+            table_nm=f"t{i}",
+            source="common",
+            src_schema="dbo",
+            select_cols="*",
+        )
+        for i in range(203)
+    ]
+    batches = chunk_tables(tables, 5)
     assert len(batches) == 41
     assert len(batches[0]) == 5
     assert len(batches[-1]) == 3
+
+
+def _sample_table(table_nm: str, recon_type: int) -> EffectiveTable:
+    return EffectiveTable(
+        table_nm=table_nm,
+        source="common",
+        src_schema="dbo",
+        select_cols="*",
+        recon_type=recon_type,
+    )
+
+
+def test_chunk_tables_by_recon_type_groups_and_orders():
+    tables = [
+        _sample_table("a", 1),
+        _sample_table("b", 2),
+        _sample_table("c", 3),
+        _sample_table("d", 1),
+        _sample_table("e", 2),
+    ]
+    batches = chunk_tables_by_recon_type(tables)
+    assert len(batches) == 3
+    assert [t.table_nm for t in batches[0]] == ["a", "d"]
+    assert [t.table_nm for t in batches[1]] == ["b", "e"]
+    assert [t.table_nm for t in batches[2]] == ["c"]
+
+
+def test_split_tables_for_pipelines_recon_mode():
+    tables = [_sample_table("a", 1), _sample_table("b", 2), _sample_table("c", 3)]
+    batches = split_tables_for_pipelines(tables, 220, split_mode="recon")
+    assert len(batches) == 3
+    assert pipeline_serial_for_batch(batches[0], split_mode="recon", count_serial=1) == 1
+    assert pipeline_serial_for_batch(batches[1], split_mode="recon", count_serial=2) == 2
+    assert pipeline_serial_for_batch(batches[2], split_mode="recon", count_serial=3) == 3
+
+
+def test_generate_yaml_splits_by_recon_type():
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15350")
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    yaml_text = generate_client_pipelines_yaml(
+        client,
+        tables,
+        uc_catalog_ref=UC_REF,
+        num_of_tables_in_pipeline=5,
+        dest_schema_suffix="",
+        pipeline_split_mode="recon",
+    )
+    recon_types = {int(t.recon_type) for t in tables}
+    for recon_type in recon_types:
+        assert f"p_iPC_2025_Dev7_15350_{recon_type}:" in yaml_text
+    assert "# pipeline_split: recon_type" in yaml_text
+    assert "--split recon" in yaml_text
 
 
 def test_generate_yaml_splits_into_multiple_pipelines():

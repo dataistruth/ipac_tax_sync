@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Monitor continuous Lakeflow pipeline heartbeats
 # MAGIC
-# MAGIC Continuous job: polls `p_*` pipeline status every `heartbeat_interval_sec`,
+# MAGIC Continuous job: polls **each** `p_*` pipeline individually every `heartbeat_interval_sec`,
 # MAGIC appends ingest poll rows to `{uc_catalog}.{ipac_metadata_schema}.process_log`
 # MAGIC (shared table for ingest, calc, transfer, and other process types).
 # MAGIC Alerts on unhealthy pipelines but does not fail the job — restart job handles FAILED pipelines.
