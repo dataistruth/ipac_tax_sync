@@ -4,6 +4,10 @@ resources:
       name: j_ipac_delta_sync_pipeline_heartbeat_monitor
       max_concurrent_runs: 1
       timeout_seconds: 0
+      # Serverless notebook task (no cluster); faster cold start than STANDARD.
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.grant_group}
@@ -14,6 +18,7 @@ resources:
           - ${var.heartbeat_job_alert_mail}
       # Continuous job polls pipeline status every heartbeat_interval_sec (see notebook loop).
       # pause_status UNPAUSED overrides dev-mode default pause on triggers.
+      # No job_cluster_key / existing_cluster_id — runs on serverless compute.
       continuous:
         pause_status: UNPAUSED
       tasks:
@@ -32,6 +37,9 @@ resources:
       name: j_ipac_delta_sync_pipeline_failed_restart
       max_concurrent_runs: 1
       timeout_seconds: 0
+      performance_target: PERFORMANCE_OPTIMIZED
+      queue:
+        enabled: true
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.grant_group}

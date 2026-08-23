@@ -17,7 +17,7 @@ from util.bundle_config import (
     pipeline_tag_var_ref,
     uc_catalog_var_ref,
 )
-from util.cluster_generator import write_recon_cluster_resource_yaml
+from util.cluster_generator import write_ingestion_recon_job_yaml
 from util.config_loader import (
     format_validation_error,
     get_client,
@@ -33,9 +33,9 @@ from util.paths import (
     client_sql_dir,
     generated_bundle_dir,
     generated_config_dir,
-    generated_config_clusters_dir,
     generated_config_schema_dir,
     generated_schema_dir,
+    resources_jobs_dir,
 )
 from util.schema_generator import write_client_schema_resource_yaml, write_ipac_metadata_schema_resource_yaml
 from util.pipeline_generator import (
@@ -184,7 +184,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     )
     schema_dir = generated_schema_dir()
     config_schema_dir = generated_config_schema_dir()
-    config_clusters_dir = generated_config_clusters_dir()
     config_dir = generated_config_dir()
     generated_pipeline_names: list[str] = []
     errors = 0
@@ -195,12 +194,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             uc_catalog_ref=uc_catalog_ref,
         )
         print(f"Generated {ipac_metadata_schema_path}", flush=True)
-        recon_cluster_path = write_recon_cluster_resource_yaml(
+        recon_job_path = write_ingestion_recon_job_yaml(
             cluster_cfg,
             recon_cluster_tier,
-            config_clusters_dir,
+            resources_jobs_dir() / "ingestion_recon_jobs.yml",
         )
-        print(f"Generated {recon_cluster_path}", flush=True)
+        print(f"Generated {recon_job_path}", flush=True)
 
     for client in clients:
         try:

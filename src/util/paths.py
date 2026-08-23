@@ -70,6 +70,5 @@ def generated_config_schema_dir() -> Path:
     return generated_config_dir() / "schema"
 
 
-def generated_config_clusters_dir() -> Path:
-    """Bundle cluster resources generated from cluster_config.json tiers."""
-    return generated_config_dir() / "clusters"
+def resources_jobs_dir() -> Path:
+    return project_root() / "resources" / "jobs"

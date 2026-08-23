@@ -1,8 +1,8 @@
 # =============================================================================
 # ipac_delta_sync — Lakeflow Connect scaffolding
 #
-# Compute: each pipeline + recon use fixed single-node clusters from
-# config/common/cluster_config.json (j1=D16, j2=D32, j3=D64). No pools/autoscale.
+# Compute: pipelines use j1/j2/j3 from cluster_config.json; recon job uses same tier
+# (recon_cluster_tier, default j3) as an ephemeral job cluster — not serverless.
 # =============================================================================
 bundle:
   name: ipac-delta-sync
@@ -19,7 +19,6 @@ sync:
 
 include:
   - generated/config/schema/*.yml
-  - generated/config/clusters/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
 

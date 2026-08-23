@@ -47,6 +47,7 @@ def format_job_cluster_spec_lines(
     spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
     num_workers_ref: str = PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
     indent: str = "          ",
+    include_single_node_custom_tag: bool = True,
 ) -> list[str]:
     """Single-node cluster fields from a job tier (j1/j2/j3) in cluster_config.json."""
     if tier.serverless:
@@ -58,16 +59,22 @@ def format_job_cluster_spec_lines(
 
     prefix = indent
     conf_indent = indent + "  "
-    return [
+    lines = [
         f"{prefix}node_type_id: {tier.node_type_id}",
         f"{prefix}spark_version: {spark_version_ref}",
         f"{prefix}num_workers: {num_workers_ref}",
         f"{prefix}spark_conf:",
         f"{conf_indent}spark.databricks.cluster.profile: singleNode",
         f"{conf_indent}spark.master: local[{tier.local_cores}]",
-        f"{prefix}custom_tags:",
-        f"{conf_indent}ResourceClass: SingleNode",
     ]
+    if include_single_node_custom_tag:
+        lines.extend(
+            [
+                f"{prefix}custom_tags:",
+                f"{conf_indent}ResourceClass: SingleNode",
+            ]
+        )
+    return lines
 
 
 def format_pipeline_cluster_lines(tier: ClusterTier) -> list[str]:
