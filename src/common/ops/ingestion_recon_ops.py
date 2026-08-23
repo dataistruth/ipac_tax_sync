@@ -293,6 +293,28 @@ def _recon_type_for_table(ctx: Any, table_nm: str) -> int:
     return 1
 
 
+RECON_TYPE_ROW_COUNT = 2
+
+
+def _uses_row_count_validation(recon_type: int) -> bool:
+    """recon_type 2 → SQL vs Delta COUNT; other types → delta history ts after SQL CT."""
+    return recon_type == RECON_TYPE_ROW_COUNT
+
+
+def split_pending_by_recon_strategy(
+    pending_tables: list[PendingCtTable],
+    ctx: Any,
+) -> tuple[list[PendingCtTable], list[PendingCtTable]]:
+    row_count_pending: list[PendingCtTable] = []
+    delta_ts_pending: list[PendingCtTable] = []
+    for probe in pending_tables:
+        if _uses_row_count_validation(_recon_type_for_table(ctx, probe.table_name)):
+            row_count_pending.append(probe)
+        else:
+            delta_ts_pending.append(probe)
+    return row_count_pending, delta_ts_pending
+
+
 def _destination_schema_for_table(ctx: Any, table_nm: str) -> str:
     target = table_nm.casefold()
     for cfg in ctx.tables:
@@ -595,21 +617,52 @@ def evaluate_table_refresh_after_sql_ct(
     """
     Per-table gate: Delta write (DESCRIBE HISTORY MERGE) after SQL CT reference + quiesce.
     """
-    if sql_ct_reference_at is None:
-        return "WAITING", "SQL CT reference timestamp unavailable"
+    return _evaluate_table_refresh_after_reference(
+        table_refresh,
+        sql_ct_reference_at,
+        quiesce_sec,
+        reference_label="sql_ct_reference",
+    )
+
+
+def evaluate_table_refresh_after_ct_detected(
+    table_refresh: dict[str, Any] | None,
+    ct_detected_at: datetime | None,
+    quiesce_sec: int = 10,
+) -> tuple[str, str]:
+    """
+    Per-table gate: Delta last_write must be after CT batch first-detected time + quiesce.
+    """
+    return _evaluate_table_refresh_after_reference(
+        table_refresh,
+        ct_detected_at,
+        quiesce_sec,
+        reference_label="ct_detected",
+    )
+
+
+def _evaluate_table_refresh_after_reference(
+    table_refresh: dict[str, Any] | None,
+    reference_at: datetime | None,
+    quiesce_sec: int,
+    reference_label: str,
+) -> tuple[str, str]:
+    if reference_at is None:
+        label = "SQL CT reference" if reference_label == "sql_ct_reference" else "CT detected"
+        return "WAITING", f"{label} timestamp unavailable"
 
     if table_refresh is None or table_refresh.get("last_refreshed_at") is None:
         return "WAITING", "no delta history write timestamp (last_refreshed_at)"
 
     refresh_dt = _ensure_utc(table_refresh["last_refreshed_at"])
-    ref_dt = _ensure_utc(sql_ct_reference_at)
+    ref_dt = _ensure_utc(reference_at)
     deadline = ref_dt + timedelta(seconds=max(0, int(quiesce_sec)))
 
     if refresh_dt < deadline:
         return (
             "WAITING",
             f"delta last_write={refresh_dt.isoformat()} before "
-            f"sql_ct_reference+{quiesce_sec}s ({deadline.isoformat()})",
+            f"{reference_label}+{quiesce_sec}s ({deadline.isoformat()})",
         )
 
     table_name = str(table_refresh.get("table") or "")
@@ -621,9 +674,9 @@ def evaluate_table_refresh_after_sql_ct(
     return (
         "PASS",
         (
-            f"delta write after SQL CT: table={table_name} "
+            f"delta write after {reference_label}: table={table_name} "
             f"last_write={refresh_dt.isoformat()} "
-            f"sql_ct_reference={ref_dt.isoformat()} "
+            f"{reference_label}={ref_dt.isoformat()} "
             f"operation={refresh_status or 'n/a'}{version_note}"
         ),
     )
@@ -954,6 +1007,111 @@ def select_row_count_sample_tables(
     )
 
 
+def select_disjoint_history_sample_tables(
+    pending_tables: list[PendingCtTable],
+    exclude: set[str],
+    sample_size: int = 5,
+    database_name: str = "",
+    history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
+) -> set[str]:
+    """History sample from pending tables not already in row_count sample."""
+    candidates = [
+        p for p in pending_tables if p.table_name.casefold() not in exclude
+    ]
+    return select_history_sample_tables(
+        candidates,
+        sample_size,
+        database_name,
+        history_verified_cache,
+    )
+
+
+def log_changed_tables_for_recon(
+    database_name: str,
+    pending_tables: list[PendingCtTable],
+) -> None:
+    """Print each CT-changed table with pending counts for this database."""
+    print(
+        f"[recon] database={database_name}: {len(pending_tables)} table(s) changed"
+    )
+    for probe in pending_tables:
+        print(
+            f"[recon] database={database_name} table={probe.table_name} "
+            f"pending I/U/D={probe.pending.inserts}/{probe.pending.updates}/{probe.pending.deletes} "
+            f"ct_versions={probe.watermark_before}..{probe.ct_head_version}"
+        )
+
+
+def evaluate_ct_delta_timestamp_recon(
+    table_refresh: dict[str, Any] | None,
+    ct_detected_at: datetime | None,
+    quiesce_sec: int,
+    pending: CtPendingCounts,
+) -> tuple[str, str]:
+    """PASS when Delta last_write is after CT batch detected_at + quiesce_sec."""
+    status, message = evaluate_table_refresh_after_ct_detected(
+        table_refresh,
+        ct_detected_at,
+        quiesce_sec=quiesce_sec,
+    )
+    if status != "PASS":
+        return status, f"ct_delta_ts: {message}"
+    return (
+        "PASS",
+        f"ct_delta_ts: CT pending={pending.total}; {message}",
+    )
+
+
+def evaluate_ct_delta_ts_after_sql_ct(
+    table_refresh: dict[str, Any] | None,
+    sql_ct_reference_at: datetime | None,
+    quiesce_sec: int,
+    pending: CtPendingCounts,
+) -> tuple[str, str]:
+    """PASS when Delta last_write is after SQL CT version-change timestamp + quiesce."""
+    status, message = evaluate_table_refresh_after_sql_ct(
+        table_refresh,
+        sql_ct_reference_at,
+        quiesce_sec=quiesce_sec,
+    )
+    if status != "PASS":
+        return status, f"ct_delta_ts: {message}"
+    return (
+        "PASS",
+        f"ct_delta_ts: CT pending={pending.total}; {message}",
+    )
+
+
+def evaluate_ct_row_count_recon(
+    pending: CtPendingCounts,
+    sql_count: int | None,
+    delta_count: int | None,
+    *,
+    require_row_count: bool = True,
+) -> tuple[str, str]:
+    """CT-changed tables only: PASS when SQL COUNT matches Delta COUNT."""
+    if not require_row_count:
+        return (
+            "WAITING",
+            f"ct_row_count: CT pending={pending.total}; "
+            "row_count deferred (not in sample this poll)",
+        )
+    if sql_count is None or delta_count is None:
+        return (
+            "WAITING",
+            f"row_count unavailable sql={sql_count} delta={delta_count}",
+        )
+    if sql_count != delta_count:
+        return (
+            "FAIL",
+            f"row_count mismatch sql={sql_count} delta={delta_count}",
+        )
+    return (
+        "PASS",
+        f"ct_row_count: CT pending={pending.total} match sql={sql_count} delta={delta_count}",
+    )
+
+
 def evaluate_ct_delta_history_recon(
     table_refresh: dict[str, Any] | None,
     sql_ct_reference_at: datetime | None,
@@ -1023,16 +1181,6 @@ def log_db_ct_recon_queue(
         )
         if delta > 0:
             print(f"[recon] db={client.src_db_nm}: on recon queue (CT version advanced)")
-
-    if pending_tables:
-        names = ", ".join(
-            f"{p.table_name}({p.pending.total})" for p in pending_tables[:12]
-        )
-        suffix = "..." if len(pending_tables) > 12 else ""
-        print(
-            f"[recon] db={client.src_db_nm}: {len(pending_tables)} changed table(s): "
-            f"{names}{suffix}"
-        )
 
 
 PASS_RULES_DELTA_HISTORY = frozenset(
@@ -1262,45 +1410,57 @@ def run_simplified_pipeline_recon(
         ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key)
 
     active_tables = [cfg.table_nm for cfg in ctx.tables]
-    api_snap = pipeline_api_update_snapshot(pipeline_detail or {})
-    api_update_complete = use_api_update_complete and api_update_indicates_complete(
-        pipeline_detail or {},
-        watermark=event_log_watermark,
-    )
-    print(
-        f"[recon] pipeline={ctx.pipeline_key} client={client.client_nm} "
-        f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
-        f"active_tables={len(active_tables)} pass_rule={pass_rule} "
-        f"row_count_only_on_flow_complete={row_count_only_on_flow_complete} "
-        f"use_api_update_complete={use_api_update_complete} "
-        f"table_quiesce_sec={table_quiesce_sec} "
-        f"row_count_sample_size={row_count_sample_size} "
-        f"history_sample_size={history_sample_size} "
-        f"uc_parallel_workers={uc_parallel_workers}"
-    )
-    if pipeline_detail:
-        print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(pipeline_detail)}")
-    if api_snap.get("update_id") or api_snap.get("state"):
+    if pass_rule == "ct_row_count":
+        api_snap = {}
+        api_update_complete = False
         print(
-            f"[recon] {ctx.pipeline_key} API last_update: "
-            f"update_id={api_snap['update_id'] or 'n/a'} "
-            f"state={api_snap['state'] or 'NONE'} "
-            f"end_time={api_snap.get('end_time') or 'n/a'}"
+            f"[recon] pipeline={ctx.pipeline_key} client={client.client_nm} "
+            f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
+            f"active_tables={len(active_tables)} pass_rule=ct_row_count "
+            f"(recon_type 2=row_count, else=delta_ts after sql_ct_reference) "
+            f"row_count_sample_size={row_count_sample_size} "
+            f"quiesce_after_sql_ct_sec={table_quiesce_sec} "
+            f"uc_parallel_workers={uc_parallel_workers}"
         )
-    if event_log_watermark is not None:
+    else:
+        api_snap = pipeline_api_update_snapshot(pipeline_detail or {})
+        api_update_complete = use_api_update_complete and api_update_indicates_complete(
+            pipeline_detail or {},
+            watermark=event_log_watermark,
+        )
         print(
-            f"[recon] {ctx.pipeline_key} SQL watermark: "
-            f"last_update_id={event_log_watermark.last_update_id or 'n/a'} "
-            f"last_api_state={event_log_watermark.last_api_update_state or 'n/a'} "
-            f"last_event_ts={event_log_watermark.last_event_ts or 'n/a'}"
+            f"[recon] pipeline={ctx.pipeline_key} client={client.client_nm} "
+            f"sql_db={client.src_db_nm} pipeline_id={ctx.pipeline_id or 'n/a'} "
+            f"active_tables={len(active_tables)} pass_rule={pass_rule} "
+            f"row_count_only_on_flow_complete={row_count_only_on_flow_complete} "
+            f"use_api_update_complete={use_api_update_complete} "
+            f"table_quiesce_sec={table_quiesce_sec} "
+            f"row_count_sample_size={row_count_sample_size} "
+            f"history_sample_size={history_sample_size} "
+            f"uc_parallel_workers={uc_parallel_workers}"
         )
-    is_continuous = bool(_pipeline_spec(pipeline_detail or {}).get("continuous"))
-    if is_continuous and api_snap.get("state") == "RUNNING":
-        print(
-            f"[recon] {ctx.pipeline_key}: continuous pipeline — "
-            "API update_state=RUNNING is normal (COMPLETED may not appear)"
-        )
-
+        if pipeline_detail:
+            print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(pipeline_detail)}")
+        if api_snap.get("update_id") or api_snap.get("state"):
+            print(
+                f"[recon] {ctx.pipeline_key} API last_update: "
+                f"update_id={api_snap['update_id'] or 'n/a'} "
+                f"state={api_snap['state'] or 'NONE'} "
+                f"end_time={api_snap.get('end_time') or 'n/a'}"
+            )
+        if event_log_watermark is not None:
+            print(
+                f"[recon] {ctx.pipeline_key} SQL watermark: "
+                f"last_update_id={event_log_watermark.last_update_id or 'n/a'} "
+                f"last_api_state={event_log_watermark.last_api_update_state or 'n/a'} "
+                f"last_event_ts={event_log_watermark.last_event_ts or 'n/a'}"
+            )
+        is_continuous = bool(_pipeline_spec(pipeline_detail or {}).get("continuous"))
+        if is_continuous and api_snap.get("state") == "RUNNING":
+            print(
+                f"[recon] {ctx.pipeline_key}: continuous pipeline — "
+                "API update_state=RUNNING is normal (COMPLETED may not appear)"
+            )
     head_cache = ct_head_cache if ct_head_cache is not None else {}
 
     conn = audit_conn
@@ -1334,8 +1494,10 @@ def run_simplified_pipeline_recon(
     )
 
     log_db_ct_recon_queue(conn, client, pending_tables)
+    log_changed_tables_for_recon(client.src_db_nm, pending_tables)
 
     batch_detected = ct_batch_detected_at if ct_batch_detected_at is not None else {}
+    ct_batch_detected_at_value: datetime | None = None
     pending_by_table_early: dict[str, PendingCtTable] = {}
     if pending_tables and pending_tables[0].ct_head_version is not None:
         pending_by_table_early = {p.table_name.casefold(): p for p in pending_tables}
@@ -1347,6 +1509,7 @@ def run_simplified_pipeline_recon(
             batch_detected,
         )
         if detected_at is not None:
+            ct_batch_detected_at_value = detected_at
             print(
                 f"[recon] {ctx.pipeline_key}: CT batch tracking "
                 f"ct_head={pending_tables[0].ct_head_version} "
@@ -1365,7 +1528,35 @@ def run_simplified_pipeline_recon(
 
     row_count_sample: set[str] = set()
     history_sample: set[str] = set()
-    if pass_rule == "ct_delta_history":
+    row_count_pending: list[PendingCtTable] = []
+    delta_ts_pending: list[PendingCtTable] = []
+    if pass_rule == "ct_row_count":
+        row_count_pending, delta_ts_pending = split_pending_by_recon_strategy(
+            pending_tables, ctx
+        )
+        if row_count_sample_size > 0:
+            row_count_sample = select_row_count_sample_tables(
+                row_count_pending,
+                row_count_sample_size,
+                client.src_db_nm,
+                verified_cache,
+            )
+        else:
+            row_count_sample = {
+                p.table_name.casefold() for p in row_count_pending
+            }
+        row_count_list = sorted(row_count_sample)
+        delta_ts_list = sorted(p.table_name.casefold() for p in delta_ts_pending)
+        print(
+            f"[recon] database={client.src_db_nm}: recon by recon_type — "
+            f"changed={len(pending_tables)} "
+            f"recon_type_2_row_count={len(row_count_pending)} "
+            f"({', '.join(row_count_list) or 'none'}) "
+            f"recon_type_1_delta_ts={len(delta_ts_pending)} "
+            f"({', '.join(delta_ts_list) or 'none'}) "
+            f"quiesce_after_sql_ct_sec={table_quiesce_sec}"
+        )
+    elif pass_rule == "ct_delta_history":
         history_sample = select_history_sample_tables(
             pending_tables,
             history_sample_size,
@@ -1393,7 +1584,74 @@ def run_simplified_pipeline_recon(
 
     row_count_cache: dict[str, tuple[int | None, int | None]] = {}
     table_refresh_cache: dict[str, dict[str, Any] | None] = {}
-    if pass_rule == "ct_delta_history" and pending_tables:
+    if pass_rule == "ct_row_count" and pending_tables:
+        sample_names = [
+            p.table_name
+            for p in row_count_pending
+            if p.table_name.casefold() in row_count_sample
+        ]
+        history_probes = list(delta_ts_pending)
+        prefetch_start = time.perf_counter()
+        table_refresh_cache, row_count_cache = prefetch_ct_delta_parallel(
+            spark,
+            catalog,
+            ctx,
+            history_probes,
+            sample_names,
+            conn,
+            src_schema,
+            client.src_db_nm,
+            pending_by_table,
+            verified_cache,
+            max_workers=uc_parallel_workers,
+        )
+        prefetch_elapsed = time.perf_counter() - prefetch_start
+        workers_used = max(
+            1,
+            min(
+                uc_parallel_workers,
+                len(history_probes) + len(sample_names),
+            ),
+        )
+        print(
+            f"[recon] {ctx.pipeline_key}: uc_parallel prefetch "
+            f"workers={workers_used} row_count_tables={len(sample_names)} "
+            f"delta_history_ts_tables={len(history_probes)} "
+            f"elapsed={prefetch_elapsed:.1f}s"
+        )
+        for table_nm in sample_names:
+            key = table_nm.casefold()
+            sql_count, delta_count = row_count_cache.get(key, (None, None))
+            dest_schema = _destination_schema_for_table(ctx, table_nm)
+            uc_ref = (
+                resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
+                if dest_schema
+                else None
+            )
+            resolved = (
+                uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
+            )
+            print(
+                f"[recon] {ctx.pipeline_key} {table_nm}: row_count "
+                f"sql_count={sql_count} delta_count={delta_count} {resolved}"
+            )
+        for probe in history_probes:
+            table_nm = probe.table_name
+            table_refresh = table_refresh_cache.get(table_nm.casefold())
+            if table_refresh:
+                print(
+                    f"[recon] {ctx.pipeline_key} {table_nm}: delta history ts "
+                    f"source={table_refresh.get('source') or 'n/a'} "
+                    f"last_write={table_refresh.get('last_refreshed_at')} "
+                    f"op={table_refresh.get('latest_refresh_status') or 'n/a'} "
+                    f"delta_version={table_refresh.get('delta_version') or 'n/a'}"
+                )
+            else:
+                print(
+                    f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
+                    "no delta history write metadata for ts check"
+                )
+    elif pass_rule == "ct_delta_history" and pending_tables:
         history_probes = [
             p for p in pending_tables if p.table_name.casefold() in history_sample
         ]
@@ -1450,6 +1708,12 @@ def run_simplified_pipeline_recon(
     waiting_count = 0
     delta_after_ct_pass = 0
     delta_after_ct_wait = 0
+    row_count_pass = 0
+    row_count_wait = 0
+    row_count_fail = 0
+    history_ts_pass = 0
+    history_ts_wait = 0
+    history_ts_fail = 0
     run_id = recon_run_id
     if run_id is None:
         sample_update = (
@@ -1489,19 +1753,37 @@ def run_simplified_pipeline_recon(
             f"ct_versions={probe.watermark_before}..{probe.ct_head_version} "
             f"pending I/U/D={probe.pending.inserts}/{probe.pending.updates}/{probe.pending.deletes} "
             f"recon_type={recon_type} "
+            f"recon_path={'row_count' if _uses_row_count_validation(recon_type) else 'delta_ts'} "
             f"watermark_updated_at={probe.watermark_updated_at or 'n/a'} "
             f"sql_ct_reference_at={probe.sql_ct_reference_at or 'n/a'}"
         )
 
-        metrics = _flow_metrics_for_table(pipeline_rows, ctx, table_nm)
-        summaries = aggregate_flow_metrics(metrics, ctx.tables)
-        summary = next(
-            (s for s in summaries if s.table_name.casefold() == table_nm.casefold()),
-            None,
+        metrics = (
+            []
+            if pass_rule == "ct_row_count"
+            else _flow_metrics_for_table(pipeline_rows, ctx, table_nm)
+        )
+        summaries = (
+            []
+            if pass_rule == "ct_row_count"
+            else aggregate_flow_metrics(metrics, ctx.tables)
+        )
+        summary = (
+            None
+            if pass_rule == "ct_row_count"
+            else next(
+                (s for s in summaries if s.table_name.casefold() == table_nm.casefold()),
+                None,
+            )
         )
         flow_complete = (
-            summary is not None and summary.final_flow_status == "COMPLETED"
-        ) or api_update_complete
+            False
+            if pass_rule == "ct_row_count"
+            else (
+                (summary is not None and summary.final_flow_status == "COMPLETED")
+                or api_update_complete
+            )
+        )
 
         stable_key = f"{client.src_db_nm}.{src_schema}.{table_nm}"
         prev_ct_head = head_cache.get(stable_key)
@@ -1516,7 +1798,120 @@ def run_simplified_pipeline_recon(
 
         sql_ct_ref = probe.sql_ct_reference_at or probe.watermark_updated_at
 
-        if pass_rule in PASS_RULES_DELTA_HISTORY:
+        if pass_rule == "ct_row_count":
+            hist_key = _row_count_verified_key(
+                client.src_db_nm, table_nm, probe.ct_head_version
+            )
+            uses_row_count = _uses_row_count_validation(recon_type)
+            in_row_sample = table_nm.casefold() in row_count_sample
+            if uses_row_count:
+                if _is_row_count_verified(
+                    client.src_db_nm,
+                    table_nm,
+                    probe.ct_head_version,
+                    verified_cache,
+                ):
+                    entry = verified_cache[hist_key]
+                    sql_count, delta_count = entry.sql_count, entry.delta_count
+                    status, message = (
+                        "PASS",
+                        (
+                            f"ct_row_count: verified cache match "
+                            f"sql={sql_count} delta={delta_count}"
+                        ),
+                    )
+                    row_count_pass += 1
+                elif in_row_sample:
+                    cached = row_count_cache.get(table_nm.casefold())
+                    if cached is not None:
+                        sql_count, delta_count = cached
+                    else:
+                        sql_count = fetch_sql_row_counts_batch(
+                            conn, src_schema, [table_nm]
+                        ).get(table_nm.casefold())
+                        delta_count = (
+                            count_delta_table_rows(spark, catalog, dest_schema, table_nm)
+                            if dest_schema
+                            else None
+                        )
+                    status, message = evaluate_ct_row_count_recon(
+                        probe.pending, sql_count, delta_count
+                    )
+                    if status == "PASS":
+                        row_count_pass += 1
+                    elif status == "WAITING":
+                        row_count_wait += 1
+                    else:
+                        row_count_fail += 1
+                    if (
+                        sql_count is not None
+                        and delta_count is not None
+                        and sql_count == delta_count
+                    ):
+                        verified_cache[hist_key] = RowCountVerified(
+                            sql_count, delta_count, probe.ct_head_version
+                        )
+                else:
+                    status, message = evaluate_ct_row_count_recon(
+                        probe.pending,
+                        None,
+                        None,
+                        require_row_count=False,
+                    )
+                    row_count_wait += 1
+            elif _is_delta_history_verified(
+                client.src_db_nm,
+                table_nm,
+                probe.ct_head_version,
+                history_verified_cache,
+            ):
+                hist_entry = history_verified_cache[hist_key]
+                table_refresh = hist_entry.table_refresh
+                last_write = table_refresh.get("last_refreshed_at")
+                status, message = (
+                    "PASS",
+                    (
+                        f"ct_delta_ts: verified cache "
+                        f"last_write={last_write or 'n/a'}"
+                    ),
+                )
+                history_ts_pass += 1
+            else:
+                table_refresh = table_refresh_cache.get(table_nm.casefold())
+                hist_cached = history_verified_cache.get(hist_key)
+                if table_refresh is None and hist_cached is not None:
+                    table_refresh = hist_cached.table_refresh
+                elif (
+                    table_refresh is None
+                    and dest_schema
+                    and not _is_delta_history_verified(
+                        client.src_db_nm,
+                        table_nm,
+                        probe.ct_head_version,
+                        history_verified_cache,
+                    )
+                ):
+                    table_refresh = fetch_streaming_table_refresh_info(
+                        spark, catalog, dest_schema, table_nm
+                    )
+                status, message = evaluate_ct_delta_ts_after_sql_ct(
+                    table_refresh,
+                    sql_ct_ref,
+                    table_quiesce_sec,
+                    probe.pending,
+                )
+                if status == "PASS":
+                    history_ts_pass += 1
+                    if table_refresh is not None:
+                        history_verified_cache[hist_key] = DeltaHistoryVerified(
+                            probe.ct_head_version,
+                            table_refresh,
+                        )
+                elif status == "WAITING":
+                    history_ts_wait += 1
+                else:
+                    history_ts_fail += 1
+        elif pass_rule in PASS_RULES_DELTA_HISTORY:
             in_history_sample = table_nm.casefold() in history_sample
             table_refresh = table_refresh_cache.get(table_nm.casefold())
             hist_key = _row_count_verified_key(
@@ -1555,144 +1950,145 @@ def run_simplified_pipeline_recon(
                     "no delta history write metadata"
                 )
 
-        if pass_rule == "ingest_quiesce":
-            metrics_positive, _, _, _ = _flow_metrics_positive(metrics)
-            if not metrics_positive:
-                _log_event_log_table_hints(pipeline_rows, ctx, table_nm, ctx.pipeline_key)
-            status, message = evaluate_ingest_quiesce_recon(
-                metrics,
-                probe.pending,
-                recon_type,
-                table_refresh,
-                sql_ct_ref,
-                quiesce_sec=table_quiesce_sec,
-            )
-        elif pass_rule == "table_after_ct":
-            status, message = evaluate_table_refresh_after_sql_ct(
-                table_refresh,
-                sql_ct_ref,
-                quiesce_sec=table_quiesce_sec,
-            )
-        elif pass_rule == "ct_delta_history":
-            in_sample = table_nm.casefold() in row_count_sample
-            if in_sample:
-                cached = row_count_cache.get(table_nm.casefold())
-                if cached is not None:
-                    sql_count, delta_count = cached
-                else:
-                    sql_count = fetch_sql_row_counts_batch(
-                        conn, src_schema, [table_nm]
-                    ).get(table_nm.casefold())
-                    delta_count = (
-                        count_delta_table_rows(spark, catalog, dest_schema, table_nm)
-                        if dest_schema
-                        else None
-                    )
-                    uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
-                    resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
-                    print(
-                        f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
-                        f"sql_count={sql_count} delta_count={delta_count} {resolved}"
-                    )
-            status, message = evaluate_ct_delta_history_recon(
-                table_refresh,
-                sql_ct_ref,
-                table_quiesce_sec,
-                probe.pending,
-                recon_type,
-                sql_count,
-                delta_count,
-                require_row_count=in_sample,
-            )
-            hist_status, _ = evaluate_table_refresh_after_sql_ct(
-                table_refresh,
-                sql_ct_ref,
-                quiesce_sec=table_quiesce_sec,
-            )
-            if (
-                hist_status == "PASS"
-                and table_refresh is not None
-                and not _is_delta_history_verified(
-                    client.src_db_nm,
-                    table_nm,
-                    probe.ct_head_version,
-                    history_verified_cache,
-                )
-            ):
-                history_verified_cache[hist_key] = DeltaHistoryVerified(
-                    probe.ct_head_version,
+        if pass_rule != "ct_row_count":
+            if pass_rule == "ingest_quiesce":
+                metrics_positive, _, _, _ = _flow_metrics_positive(metrics)
+                if not metrics_positive:
+                    _log_event_log_table_hints(pipeline_rows, ctx, table_nm, ctx.pipeline_key)
+                status, message = evaluate_ingest_quiesce_recon(
+                    metrics,
+                    probe.pending,
+                    recon_type,
                     table_refresh,
+                    sql_ct_ref,
+                    quiesce_sec=table_quiesce_sec,
                 )
-            if in_sample and sql_count is not None and delta_count is not None:
-                if sql_count == delta_count:
-                    verified_cache[hist_key] = RowCountVerified(
-                        sql_count, delta_count, probe.ct_head_version
-                    )
-        elif pass_rule in ("auto", "flow_complete") and flow_complete:
-            if summary is not None and summary.final_flow_status == "COMPLETED":
-                status, message = "PASS", "flow_progress COMPLETED in event log"
-            elif api_update_complete:
-                status, message = "PASS", "pipeline API last update COMPLETED"
-            else:
-                status, message = "PASS", "flow COMPLETED"
-        else:
-            if pass_rule in ("row_count", "auto"):
-                defer_row_count = (
-                    row_count_only_on_flow_complete
-                    and not flow_complete
-                    and not ct_head_stable
+            elif pass_rule == "table_after_ct":
+                status, message = evaluate_table_refresh_after_sql_ct(
+                    table_refresh,
+                    sql_ct_ref,
+                    quiesce_sec=table_quiesce_sec,
                 )
-                if defer_row_count:
-                    print(
-                        f"[recon] {ctx.pipeline_key} {table_nm}: "
-                        "deferring COUNT_BIG until flow COMPLETED or CT head stable"
-                    )
-                elif (
-                    row_count_only_on_flow_complete
-                    and ct_head_stable
-                    and not flow_complete
-                ):
-                    print(
-                        f"[recon] {ctx.pipeline_key} {table_nm}: "
-                        f"CT head stable at {probe.ct_head_version} — running row_count"
-                    )
-                if not defer_row_count:
-                    sql_count = fetch_sql_row_counts_batch(
-                        conn, src_schema, [table_nm]
-                    ).get(table_nm.casefold())
-                    uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
-                    delta_count = (
-                        count_delta_table_rows(spark, catalog, dest_schema, table_nm)
-                        if dest_schema
-                        else None
-                    )
-                    if sql_count is not None or delta_count is not None:
+            elif pass_rule == "ct_delta_history":
+                in_sample = table_nm.casefold() in row_count_sample
+                if in_sample:
+                    cached = row_count_cache.get(table_nm.casefold())
+                    if cached is not None:
+                        sql_count, delta_count = cached
+                    else:
+                        sql_count = fetch_sql_row_counts_batch(
+                            conn, src_schema, [table_nm]
+                        ).get(table_nm.casefold())
+                        delta_count = (
+                            count_delta_table_rows(spark, catalog, dest_schema, table_nm)
+                            if dest_schema
+                            else None
+                        )
+                        uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
                         resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
-                        if uc_ref and uc_ref.name != qualified_table(catalog, dest_schema, table_nm):
-                            print(
-                                f"[recon] {ctx.pipeline_key} {table_nm}: "
-                                f"resolved UC table {resolved}"
-                            )
+                        print(
+                            f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
+                            f"sql_count={sql_count} delta_count={delta_count} {resolved}"
+                        )
+                status, message = evaluate_ct_delta_history_recon(
+                    table_refresh,
+                    sql_ct_ref,
+                    table_quiesce_sec,
+                    probe.pending,
+                    recon_type,
+                    sql_count,
+                    delta_count,
+                    require_row_count=in_sample,
+                )
+                hist_status, _ = evaluate_table_refresh_after_sql_ct(
+                    table_refresh,
+                    sql_ct_ref,
+                    quiesce_sec=table_quiesce_sec,
+                )
+                if (
+                    hist_status == "PASS"
+                    and table_refresh is not None
+                    and not _is_delta_history_verified(
+                        client.src_db_nm,
+                        table_nm,
+                        probe.ct_head_version,
+                        history_verified_cache,
+                    )
+                ):
+                    history_verified_cache[hist_key] = DeltaHistoryVerified(
+                        probe.ct_head_version,
+                        table_refresh,
+                    )
+                if in_sample and sql_count is not None and delta_count is not None:
+                    if sql_count == delta_count:
+                        verified_cache[hist_key] = RowCountVerified(
+                            sql_count, delta_count, probe.ct_head_version
+                        )
+            elif pass_rule in ("auto", "flow_complete") and flow_complete:
+                if summary is not None and summary.final_flow_status == "COMPLETED":
+                    status, message = "PASS", "flow_progress COMPLETED in event log"
+                elif api_update_complete:
+                    status, message = "PASS", "pipeline API last update COMPLETED"
+                else:
+                    status, message = "PASS", "flow COMPLETED"
+            else:
+                if pass_rule in ("row_count", "auto"):
+                    defer_row_count = (
+                        row_count_only_on_flow_complete
+                        and not flow_complete
+                        and not ct_head_stable
+                    )
+                    if defer_row_count:
                         print(
                             f"[recon] {ctx.pipeline_key} {table_nm}: "
-                            f"sql_count={sql_count} delta_count={delta_count} "
-                            f"({'streaming COUNT(1)' if uc_ref and is_streaming_uc_table(spark, uc_ref) else 'delta numRecords'}) "
-                            f"{resolved}"
+                            "deferring COUNT_BIG until flow COMPLETED or CT head stable"
                         )
-                    elif dest_schema:
+                    elif (
+                        row_count_only_on_flow_complete
+                        and ct_head_stable
+                        and not flow_complete
+                    ):
                         print(
-                            f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
-                            f"UC table not found {catalog}.{dest_schema}.{table_nm}"
+                            f"[recon] {ctx.pipeline_key} {table_nm}: "
+                            f"CT head stable at {probe.ct_head_version} — running row_count"
                         )
-            status, message = evaluate_simple_recon(
-                summary,
-                probe.pending,
-                recon_type,
-                sql_count,
-                delta_count,
-                pass_rule,
-                api_update_complete=api_update_complete,
-            )
+                    if not defer_row_count:
+                        sql_count = fetch_sql_row_counts_batch(
+                            conn, src_schema, [table_nm]
+                        ).get(table_nm.casefold())
+                        uc_ref = resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
+                        delta_count = (
+                            count_delta_table_rows(spark, catalog, dest_schema, table_nm)
+                            if dest_schema
+                            else None
+                        )
+                        if sql_count is not None or delta_count is not None:
+                            resolved = uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
+                            if uc_ref and uc_ref.name != qualified_table(catalog, dest_schema, table_nm):
+                                print(
+                                    f"[recon] {ctx.pipeline_key} {table_nm}: "
+                                    f"resolved UC table {resolved}"
+                                )
+                            print(
+                                f"[recon] {ctx.pipeline_key} {table_nm}: "
+                                f"sql_count={sql_count} delta_count={delta_count} "
+                                f"({'streaming COUNT(1)' if uc_ref and is_streaming_uc_table(spark, uc_ref) else 'delta numRecords'}) "
+                                f"{resolved}"
+                            )
+                        elif dest_schema:
+                            print(
+                                f"[recon] WARN {ctx.pipeline_key} {table_nm}: "
+                                f"UC table not found {catalog}.{dest_schema}.{table_nm}"
+                            )
+                status, message = evaluate_simple_recon(
+                    summary,
+                    probe.pending,
+                    recon_type,
+                    sql_count,
+                    delta_count,
+                    pass_rule,
+                    api_update_complete=api_update_complete,
+                )
         print(f"[recon] {ctx.pipeline_key} {table_nm}: {status} — {message}")
 
         if pass_rule in PASS_RULES_DELTA_HISTORY:
@@ -1701,17 +2097,36 @@ def run_simplified_pipeline_recon(
             elif status == "WAITING":
                 delta_after_ct_wait += 1
 
-        row_update_id = summary.update_id if summary else (
-            metrics[-1].update_id if metrics else api_snap.get("update_id", "")
+        row_update_id = (
+            ""
+            if pass_rule == "ct_row_count"
+            else (
+                summary.update_id if summary else (
+                    metrics[-1].update_id if metrics else api_snap.get("update_id", "")
+                )
+            )
         )
         if pass_rule == "ct_delta_history" and table_refresh:
             dlt_uid = table_refresh.get("dlt_update_id")
             if dlt_uid:
                 row_update_id = str(dlt_uid)
-        flow_name = summary.flow_name if summary else _default_flow_name_for_table(table_nm, src_schema)
+        flow_name = (
+            DATABASE_RECON_FLOW_NAME
+            if pass_rule == "ct_row_count"
+            else (
+                summary.flow_name if summary else _default_flow_name_for_table(table_nm, src_schema)
+            )
+        )
         pipeline_id = ctx.pipeline_id or (summary.pipeline_id if summary else "")
-        ingest_change = summary.total_change_rows if summary else (
-            sum(m.rows_upserted or 0 for m in metrics) + sum(m.rows_deleted or 0 for m in metrics)
+        ingest_change = (
+            0
+            if pass_rule == "ct_row_count"
+            else (
+                summary.total_change_rows if summary else (
+                    sum(m.rows_upserted or 0 for m in metrics)
+                    + sum(m.rows_deleted or 0 for m in metrics)
+                )
+            )
         )
 
         table_outcomes.append(
@@ -1872,7 +2287,16 @@ def run_simplified_pipeline_recon(
                     f"→ recon_ready written (1 row)"
                 )
 
-    if pass_rule in PASS_RULES_DELTA_HISTORY and pending_tables:
+    if pass_rule == "ct_row_count" and pending_tables:
+        print(
+            f"[recon] {ctx.pipeline_key}: recon summary — "
+            f"changed={len(pending_tables)} "
+            f"row_count pass={row_count_pass} wait={row_count_wait} fail={row_count_fail} | "
+            f"delta_history_ts pass={history_ts_pass} wait={history_ts_wait} "
+            f"fail={history_ts_fail} "
+            f"(recon_type 2=COUNT; else delta last_write > sql_ct_reference+{table_quiesce_sec}s)"
+        )
+    elif pass_rule in PASS_RULES_DELTA_HISTORY and pending_tables:
         print(
             f"[recon] {ctx.pipeline_key}: per-table delta vs SQL CT — "
             f"checked={len(pending_tables)} "
@@ -2273,10 +2697,12 @@ def run_all_pipeline_recon(
     row_count_verified_cache: dict[str, RowCountVerified] | None = None,
     delta_history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
 ) -> dict[str, int]:
-    """Poll hidden event logs only for pipelines with activity; recon changed flows."""
+    """Poll pipelines; recon CT-changed tables (SQL CT vs Delta row count when ct_row_count)."""
     if simplified_recon and not use_sql_server_audit:
         print("WARN simplified_recon requires use_sql_server_audit=true; using full recon")
         simplified_recon = False
+
+    ct_row_count_mode = simplified_recon and simple_pass_rule == "ct_row_count"
 
     totals = {
         "metrics": 0,
@@ -2289,13 +2715,15 @@ def run_all_pipeline_recon(
         "ct_pending_tables": 0,
         "waiting_tables": 0,
     }
-    rest_client = DatabricksRestClient()
+    rest_client = DatabricksRestClient() if not ct_row_count_mode else None
     polled_at = datetime.now(timezone.utc)
 
     pipeline_ids = [ctx.pipeline_id for ctx, _, _, _ in pipeline_contexts if ctx.pipeline_id]
     for ctx, _, _, _ in pipeline_contexts:
-        if not ctx.pipeline_id:
+        if not ctx.pipeline_id and rest_client is not None:
             ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
+        elif not ctx.pipeline_id:
+            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key)
         if ctx.pipeline_id:
             pipeline_ids.append(ctx.pipeline_id)
     unique_pipeline_ids = sorted(set(pipeline_ids))
@@ -2304,7 +2732,12 @@ def run_all_pipeline_recon(
     watermark_conn_client: Any | None = None
     pending_event_log_watermarks: dict[str, ReconEventLogWatermark] = {}
 
-    if use_sql_server_audit and pipeline_contexts:
+    watermarks: dict[str, ReconEventLogWatermark] = {}
+    if (
+        use_sql_server_audit
+        and pipeline_contexts
+        and not ct_row_count_mode
+    ):
         try:
             watermark_conn_client = pipeline_contexts[0][3]
             watermark_conn, _ = open_audit_connection(
@@ -2319,7 +2752,7 @@ def run_all_pipeline_recon(
         except Exception as exc:
             print(f"[recon] WARN SQL watermark read failed, using empty: {exc}")
             watermarks = {}
-    else:
+    elif not ct_row_count_mode:
         watermarks = read_recon_event_log_watermarks(
             spark,
             catalog,
@@ -2338,26 +2771,37 @@ def run_all_pipeline_recon(
     for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
         if not ctx.pipeline_id:
-            ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
+            if rest_client is not None:
+                ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key, rest_client)
+            else:
+                ctx.pipeline_id = resolve_pipeline_id(ctx.pipeline_key)
         if not ctx.pipeline_id:
             print(f"{ctx.pipeline_key}: SKIP no pipeline_id")
             totals["skipped"] += 1
             continue
 
-        detail = rest_client.get(f"/api/2.0/pipelines/{ctx.pipeline_id}") or {}
-        watermark = watermarks.get(ctx.pipeline_id)
-        needs_poll, reason = pipeline_needs_event_log_poll(detail, watermark)
-        print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(detail)}")
-        if watermark is not None:
-            print(
-                f"[recon] {ctx.pipeline_key} stored watermark: "
-                f"last_update_id={watermark.last_update_id or 'n/a'} "
-                f"last_api_state={watermark.last_api_update_state or 'n/a'} "
-                f"last_event_ts={watermark.last_event_ts or 'n/a'}"
-            )
+        detail: dict[str, Any] = {}
+        watermark: ReconEventLogWatermark | None = None
+        needs_poll = False
+        reason = "n/a"
+        skip_event_log = ct_row_count_mode
+
+        if ct_row_count_mode:
+            pass
+        else:
+            detail = rest_client.get(f"/api/2.0/pipelines/{ctx.pipeline_id}") or {}
+            watermark = watermarks.get(ctx.pipeline_id)
+            needs_poll, reason = pipeline_needs_event_log_poll(detail, watermark)
+            print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(detail)}")
+            if watermark is not None:
+                print(
+                    f"[recon] {ctx.pipeline_key} stored watermark: "
+                    f"last_update_id={watermark.last_update_id or 'n/a'} "
+                    f"last_api_state={watermark.last_api_update_state or 'n/a'} "
+                    f"last_event_ts={watermark.last_event_ts or 'n/a'}"
+                )
 
         ct_pending_probe: list[PendingCtTable] = []
-        skip_event_log = False
         if simplified_recon and use_sql_server_audit:
             try:
                 probe_conn, _ = open_audit_connection(ipac_client, dbutils=dbutils)
@@ -2391,7 +2835,14 @@ def run_all_pipeline_recon(
                 totals["skipped"] += 1
                 continue
 
-            if simple_pass_rule == "ct_delta_history":
+            if ct_row_count_mode:
+                needs_poll = True
+                skip_event_log = True
+                reason = (
+                    f"CT pending on {len(ct_pending_probe)} table(s), "
+                    "ct_row_count (SQL vs Delta, no pipeline API/event_log)"
+                )
+            elif simple_pass_rule == "ct_delta_history":
                 needs_poll = True
                 skip_event_log = True
                 reason = (
@@ -2507,7 +2958,7 @@ def run_all_pipeline_recon(
             totals["recon_ready"] += r
             print(f"{ctx.pipeline_key}: metrics_merged={m} summaries={s} recon_ready={r}")
 
-    if pending_event_log_watermarks and watermark_conn is not None:
+    if pending_event_log_watermarks and watermark_conn is not None and not ct_row_count_mode:
         try:
             flushed = flush_recon_event_log_watermarks_sql(
                 watermark_conn, pending_event_log_watermarks

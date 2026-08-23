@@ -6,9 +6,14 @@ from common.ops.ingestion_recon_ops import (
     build_database_tables_json,
     count_delta_table_rows,
     evaluate_ct_delta_history_recon,
+    evaluate_ct_row_count_recon,
     evaluate_ingest_quiesce_recon,
     evaluate_simple_recon,
+    evaluate_ct_delta_ts_after_sql_ct,
+    evaluate_ct_delta_timestamp_recon,
+    evaluate_table_refresh_after_ct_detected,
     evaluate_table_refresh_after_sql_ct,
+    select_disjoint_history_sample_tables,
     prefetch_row_count_samples,
     select_row_count_sample_tables,
     select_history_sample_tables,
@@ -271,6 +276,68 @@ def test_fetch_sql_row_counts_batch_union():
     assert out == {"k1input_snapshot": 100, "cyadjustmentinput": 200}
 
 
+def test_evaluate_ct_row_count_pass():
+    status, msg = evaluate_ct_row_count_recon(
+        CtPendingCounts(inserts=10000),
+        8581287,
+        8581287,
+    )
+    assert status == "PASS"
+    assert "ct_row_count" in msg
+    assert "match" in msg
+
+
+def test_evaluate_ct_row_count_fail_mismatch():
+    status, msg = evaluate_ct_row_count_recon(
+        CtPendingCounts(inserts=5),
+        100,
+        99,
+    )
+    assert status == "FAIL"
+    assert "mismatch" in msg
+
+
+def test_evaluate_ct_row_count_waiting_unavailable():
+    status, msg = evaluate_ct_row_count_recon(
+        CtPendingCounts(inserts=3),
+        100,
+        None,
+    )
+    assert status == "WAITING"
+    assert "unavailable" in msg
+
+
+def test_evaluate_ct_row_count_deferred_not_in_sample():
+    status, msg = evaluate_ct_row_count_recon(
+        CtPendingCounts(inserts=5000),
+        None,
+        None,
+        require_row_count=False,
+    )
+    assert status == "WAITING"
+    assert "deferred" in msg
+    assert "not in sample" in msg
+
+
+def test_evaluate_ct_delta_ts_after_sql_ct_pass():
+    write_at = datetime(2026, 8, 23, 18, 40, 45, tzinfo=timezone.utc)
+    sql_ct = datetime(2026, 8, 23, 18, 40, 30, tzinfo=timezone.utc)
+    refresh = {
+        "table": "dev7.schema.Entity",
+        "last_refreshed_at": write_at,
+        "latest_refresh_status": "MERGE",
+    }
+    status, msg = evaluate_ct_delta_ts_after_sql_ct(
+        refresh,
+        sql_ct,
+        quiesce_sec=10,
+        pending=CtPendingCounts(inserts=100),
+    )
+    assert status == "PASS"
+    assert "ct_delta_ts" in msg
+    assert "sql_ct_reference" in msg
+
+
 def test_evaluate_ct_delta_history_pass_history_only():
     merge_at = datetime(2026, 8, 22, 1, 0, 0, tzinfo=timezone.utc)
     sql_ct = datetime(2026, 8, 21, 22, 59, 28, tzinfo=timezone.utc)
@@ -375,7 +442,55 @@ def test_evaluate_table_refresh_after_sql_ct_pass():
         quiesce_sec=15,
     )
     assert status == "PASS"
-    assert "delta write after SQL CT" in msg
+    assert "delta write after sql_ct_reference" in msg
+
+
+def test_evaluate_table_refresh_after_ct_detected_pass():
+    write_at = datetime(2026, 8, 23, 18, 40, 45, tzinfo=timezone.utc)
+    detected_at = datetime(2026, 8, 23, 18, 40, 30, tzinfo=timezone.utc)
+    refresh = {
+        "table": "dev7.schema.Table",
+        "last_refreshed_at": write_at,
+        "latest_refresh_status": "MERGE",
+        "source": "describe_detail",
+    }
+    status, msg = evaluate_table_refresh_after_ct_detected(
+        refresh,
+        detected_at,
+        quiesce_sec=10,
+    )
+    assert status == "PASS"
+    assert "ct_detected" in msg
+
+
+def test_evaluate_table_refresh_after_ct_detected_waiting_before_quiesce():
+    write_at = datetime(2026, 8, 23, 18, 40, 35, tzinfo=timezone.utc)
+    detected_at = datetime(2026, 8, 23, 18, 40, 30, tzinfo=timezone.utc)
+    refresh = {"last_refreshed_at": write_at, "table": "t"}
+    status, msg = evaluate_table_refresh_after_ct_detected(
+        refresh, detected_at, quiesce_sec=10
+    )
+    assert status == "WAITING"
+    assert "ct_detected+10s" in msg
+
+
+def test_select_disjoint_history_sample_excludes_row_count_sample():
+    probes = [
+        PendingCtTable(
+            schema_name="dbo",
+            table_name=f"T{i}",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=i * 1000),
+        )
+        for i in range(10)
+    ]
+    row_sample = {"t5", "t6", "t7", "t8", "t9"}
+    hist_sample = select_disjoint_history_sample_tables(
+        probes, row_sample, sample_size=5
+    )
+    assert len(hist_sample) == 5
+    assert hist_sample.isdisjoint(row_sample)
 
 
 def test_evaluate_ingest_quiesce_pass():

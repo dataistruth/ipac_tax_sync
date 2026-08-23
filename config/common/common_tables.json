@@ -1,203 +1,1596 @@
 {
   "tables": [
-    {"table_nm": "AssetClassOverrideImportData", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "AtRiskInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "AtRiskPackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "BasisOverrideImportData", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "BookEffective_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "BookK1AdjustmentbyPartner", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "BoxJKLInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "BoxJKLLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ContributionLineWithAttributes", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CostPercentage_704c_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CostPercentage_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CostPercentageWACPeriod_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomFootnoteInput", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomFootnoteLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomFootnotePackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomImportData", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomImportData_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomImportDetail", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomRegisterDetail", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CustomRegisterTemplateDetails", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CYAdjustmentInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "CYAdjustmentLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "DefaultAllocationRuleSetup", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "DF_EntityFeedTransactionMapping", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "DF_FinancialAlloc_Archive", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "DF_PCAP_Archive", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ECIRate", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Entity", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityAllocationRule_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityConfigurationImportData", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityConfigurations", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityLPOffset_SnapShot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityOffset_SnapShot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityPartnerRelationship", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "EntityRelationship", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_704cAllocationLogic", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_AdjustmentType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_AllocationBy", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_AllocationLogic", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_AllocationPercentageType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_AssetClass", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_AttributeType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_CountryListImports", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_CustomAllocations", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_DataList", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_DF_DataList", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_EntityType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_Event", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_FilingStatus", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_ForeignCorptypeofPFIC", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_GlobalMenuGroup", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_IncomeAttributeType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_InvestmentType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Enu_K1K3ValidationRule", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_K1Status", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_K3Attribute", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_LevelType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_LineType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_MappingSource", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_PFICAddressType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_PFICForeignCorp", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_ProcessEntityConfigurations", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_ProcessEntityConfigurationsType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_RuleGroup", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_RuleType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_SICCodes", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_StateDataList", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_TaxClass", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_TrialBalanceCategory", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_TrialBalanceSource", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ENU_UnderlyingType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ExchangeRateOverride", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "FDAPRate", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "FinalFund", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "FinalFundLog", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "FootNoteTrialBalanceAdjustments_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ForeignCurrencyAverageRate", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ForeignCurrencyRate", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form199AInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form199ALineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form199APackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8865Input_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8865LineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8865Package", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8865SchInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8865SchPackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8886Entity", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8886Input_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8886LineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form8886Package", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form926Entity", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form926Input_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form926LineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Form926Package", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "GlobalMenu", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ImportErrorMessages", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "IncomeAttribute", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "IncomeAttribute_PreviousYear", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "IncomeAttributeRounding", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K1GLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K1GPartnerTypes", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K1Input_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K1LineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K1Package", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K1UBTI_SNAPSHOT", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "K3MappedAllocableLines", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Location", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "LockUnderlyingEntities", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "LookthroughAdjustments_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "LookthroughReclass_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "LookthroughReclassFNTieringBlocker_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "M1Adjustments_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "M3Rules", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "M3RulesMapping", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Map_CustomReportLine", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAP_DerivedLines", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Map_Form163J", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAP_ImportColumn", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAP_K1LineItemGroup", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAP_K1LineItemLineType", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAP_ParentChildK1GLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAP_SourceAttributeRelation", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MAPDataRegister", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MapDefaultAllocRuleToLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MappingLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MapRulesToUnderlyings", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MapYearlyToK1", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MasterChartOfAccounts", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MasterImportEntityFeed", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "MergePartner_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "NonLookthroughEntities", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ParentK1GLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Partner_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PE_EntityByInvestment", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICAlertDetails", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICFootNoteEntity", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICFootnoteInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICFootnoteLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICFootnotePackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PficForeignCorpClassificationInput", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICK1Mapping", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICUpdateAlert", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICXmlOverrideInput", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "PFICXmlOverridePackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Phase", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ProcessEntityConfigurationsImport", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "QuarterDates", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ReclassTrialBalanceAdjustments_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "ReportPackage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "RoundingOverride_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SidePocketDefinition", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_AllowHighestGradualRate", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_EntityLevelStateThresholds", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_ExcessPartnerWithholding_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_FederaltoStatePartnerTypeMapping", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_K1PackageFileData", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_LookthroughAdjustments_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_LookthroughReclass_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_PartnerComposite", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_PartnerComposite_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_PartnerWithholding_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_Payment_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_PaymentAllocationRules", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_PYFiling", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_PYFiling_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_RoundingOverride", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_SpecialAllocationCode", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_SpecialAllocationInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_SpecialAllocationPaymentLineItem", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateCompositeConfiguration", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateFilingHighPenaltyLogic", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateFilingResidencyLogic", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateLineAllocationRule_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateLines", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateTaxRates", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateTaxRates_SubLineItems", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateThresholds", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StateWorkspaceInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_StopCompWHCalculation", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "SM_WHWaiverExemptRules", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "State_StateCode", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "StateWithholdingCompositeOverrideData_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TagPercentage_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TaxHoldbackPercentage", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TaxPeriod", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Tranche", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TrancheSidePocket", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TransactionLog", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Transfers_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TransfersInput_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TrialBalanceAdjustments_SnapShot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "TU_Entity", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "UBTIDFPercent_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "UBTILOC_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Workflow", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "WorkflowChain", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "WorkflowStatus", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "Yearly_Snapshot", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1},
-    {"table_nm": "YearlyByInvestment", "lq_key": "", "is_active": true, "select_cols": "", "scd_type": 1, "recon_type": 1}
+    {
+      "table_nm": "AssetClassOverrideImportData",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "AtRiskInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "AtRiskPackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "BasisOverrideImportData",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "BookEffective_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "BookK1AdjustmentbyPartner",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "BoxJKLInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "BoxJKLLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ContributionLineWithAttributes",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CostPercentage_704c_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "CostPercentage_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "CostPercentageWACPeriod_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "CustomFootnoteInput",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CustomFootnoteLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CustomFootnotePackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CustomImportData",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CustomImportData_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "CustomImportDetail",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CustomRegisterDetail",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CustomRegisterTemplateDetails",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "CYAdjustmentInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "CYAdjustmentLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "DefaultAllocationRuleSetup",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "DF_EntityFeedTransactionMapping",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "DF_FinancialAlloc_Archive",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "DF_PCAP_Archive",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ECIRate",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Entity",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "EntityAllocationRule_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "EntityConfigurationImportData",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "EntityConfigurations",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "EntityLPOffset_SnapShot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "EntityOffset_SnapShot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "EntityPartnerRelationship",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "EntityRelationship",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_704cAllocationLogic",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_AdjustmentType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_AllocationBy",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_AllocationLogic",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_AllocationPercentageType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_AssetClass",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_AttributeType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_CountryListImports",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_CustomAllocations",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_DataList",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_DF_DataList",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_EntityType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_Event",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_FilingStatus",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_ForeignCorptypeofPFIC",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_GlobalMenuGroup",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_IncomeAttributeType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_InvestmentType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Enu_K1K3ValidationRule",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_K1Status",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_K3Attribute",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_LevelType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_LineType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_MappingSource",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_PFICAddressType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_PFICForeignCorp",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_ProcessEntityConfigurations",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_ProcessEntityConfigurationsType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_RuleGroup",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_RuleType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_SICCodes",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_StateDataList",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_TaxClass",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_TrialBalanceCategory",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_TrialBalanceSource",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ENU_UnderlyingType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ExchangeRateOverride",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "FDAPRate",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "FinalFund",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "FinalFundLog",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "FootNoteTrialBalanceAdjustments_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "ForeignCurrencyAverageRate",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ForeignCurrencyRate",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form199AInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "Form199ALineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form199APackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form8865Input_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "Form8865LineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form8865Package",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form8865SchInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "Form8865SchPackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form8886Entity",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form8886Input_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "Form8886LineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form8886Package",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form926Entity",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form926Input_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "Form926LineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Form926Package",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "GlobalMenu",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ImportErrorMessages",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "IncomeAttribute",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "IncomeAttribute_PreviousYear",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "IncomeAttributeRounding",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "K1GLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "K1GPartnerTypes",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "K1Input_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "K1LineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "K1Package",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "K1UBTI_SNAPSHOT",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "K3MappedAllocableLines",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Location",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "LockUnderlyingEntities",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "LookthroughAdjustments_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "LookthroughReclass_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "LookthroughReclassFNTieringBlocker_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "M1Adjustments_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "M3Rules",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "M3RulesMapping",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Map_CustomReportLine",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAP_DerivedLines",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Map_Form163J",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAP_ImportColumn",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAP_K1LineItemGroup",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAP_K1LineItemLineType",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAP_ParentChildK1GLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAP_SourceAttributeRelation",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MAPDataRegister",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MapDefaultAllocRuleToLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MappingLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MapRulesToUnderlyings",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MapYearlyToK1",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MasterChartOfAccounts",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MasterImportEntityFeed",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "MergePartner_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "NonLookthroughEntities",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ParentK1GLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Partner_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "PE_EntityByInvestment",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICAlertDetails",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICFootNoteEntity",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICFootnoteInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "PFICFootnoteLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICFootnotePackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PficForeignCorpClassificationInput",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICK1Mapping",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICUpdateAlert",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICXmlOverrideInput",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "PFICXmlOverridePackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Phase",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ProcessEntityConfigurationsImport",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "QuarterDates",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "ReclassTrialBalanceAdjustments_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "ReportPackage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "RoundingOverride_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SidePocketDefinition",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_AllowHighestGradualRate",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_EntityLevelStateThresholds",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_ExcessPartnerWithholding_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_FederaltoStatePartnerTypeMapping",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_K1PackageFileData",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_LookthroughAdjustments_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_LookthroughReclass_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_PartnerComposite",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_PartnerComposite_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_PartnerWithholding_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_Payment_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_PaymentAllocationRules",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_PYFiling",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_PYFiling_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_RoundingOverride",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_SpecialAllocationCode",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_SpecialAllocationInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_SpecialAllocationPaymentLineItem",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateCompositeConfiguration",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateFilingHighPenaltyLogic",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateFilingResidencyLogic",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateLineAllocationRule_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_StateLines",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateTaxRates",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateTaxRates_SubLineItems",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateThresholds",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_StateWorkspaceInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "SM_StopCompWHCalculation",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "SM_WHWaiverExemptRules",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "State_StateCode",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "StateWithholdingCompositeOverrideData_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "TagPercentage_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "TaxHoldbackPercentage",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "TaxPeriod",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Tranche",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "TrancheSidePocket",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "TransactionLog",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Transfers_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "TransfersInput_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "TrialBalanceAdjustments_SnapShot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "TU_Entity",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "UBTIDFPercent_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "UBTILOC_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "Workflow",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "WorkflowChain",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "WorkflowStatus",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    },
+    {
+      "table_nm": "Yearly_Snapshot",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 2
+    },
+    {
+      "table_nm": "YearlyByInvestment",
+      "lq_key": "",
+      "is_active": true,
+      "select_cols": "",
+      "scd_type": 1,
+      "recon_type": 1
+    }
   ]
 }

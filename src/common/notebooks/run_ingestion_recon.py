@@ -1,13 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Ingestion reconciliation (CT + Delta history)
+# MAGIC # Ingestion reconciliation (CT + recon_type routing)
 # MAGIC
-# MAGIC Polls SQL Server Change Tracking vs UC Delta targets, writes **`recon_ready`** on database PASS.
-# MAGIC SQL Server (`ipac_metadata.dbo`) holds watermarks and audit; UC holds `recon_ready` + `process_log`.
+# MAGIC Polls SQL Server Change Tracking for **CT-changed tables only**:
+# MAGIC - **recon_type 2** (snapshot tables) → SQL `COUNT_BIG` vs Delta row count
+# MAGIC - **recon_type 1** (and other) → Delta `last_write` after `sql_ct_reference_at + quiesce_sec`
 # MAGIC
-# MAGIC **Pass rule:** `ct_delta_history` (fixed) — no `flow_progress` / event_log dependency.
-# MAGIC
-# MAGIC **Dependencies:** `mssql-python` and `pydantic>=2` via `%pip` in cell 1.
+# MAGIC Writes **`recon_ready`** when all changed tables pass. No pipeline API / event_log.
 
 # COMMAND ----------
 
@@ -21,28 +20,25 @@ dbutils.widgets.text("ipac_metadata_schema", "ipac_metadata", "Metadata schema")
 dbutils.widgets.text("pipeline_names_file", "", "pipeline_names.json path")
 dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
 dbutils.widgets.text("poll_interval_sec", "30", "Poll interval (seconds)")
-dbutils.widgets.text("table_quiesce_sec", "15", "Seconds after SQL CT before Delta write gate")
-dbutils.widgets.text("row_count_sample_size", "5", "Max tables for SQL vs Delta row count")
-dbutils.widgets.text("history_sample_size", "5", "Max tables for DESCRIBE HISTORY per poll")
-dbutils.widgets.text("uc_parallel_workers", "10", "Parallel UC threads (history + Delta count, 0=sequential)")
+dbutils.widgets.text("table_quiesce_sec", "10", "Seconds after sql_ct_reference before delta last_write gate")
+dbutils.widgets.text("row_count_sample_size", "5", "Max recon_type 2 tables for COUNT per poll (0=all)")
+dbutils.widgets.text("uc_parallel_workers", "10", "Parallel UC threads (history + Delta count)")
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "dev7"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
 pipeline_names_file = dbutils.widgets.get("pipeline_names_file").strip()
 dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "_poc1"
 poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "30")
-table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "15")
+table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "10")
 row_count_sample_size = int(dbutils.widgets.get("row_count_sample_size").strip() or "5")
-history_sample_size = int(dbutils.widgets.get("history_sample_size").strip() or "5")
 uc_parallel_workers = int(
     dbutils.widgets.get("uc_parallel_workers").strip() or "10"
 )
 
-# Fixed for this notebook (CT-driven path only).
 LOOKBACK_HOURS = 24
 USE_SQL_SERVER_AUDIT = True
 SIMPLIFIED_RECON = True
-SIMPLE_PASS_RULE = "ct_delta_history"
+SIMPLE_PASS_RULE = "ct_row_count"
 
 print(f"uc_catalog                   : {uc_catalog}")
 print(f"metadata_schema              : {metadata_schema}")
@@ -51,7 +47,6 @@ print(f"dest_schema_suffix           : {dest_schema_suffix}")
 print(f"poll_interval_sec            : {poll_interval_sec}")
 print(f"table_quiesce_sec            : {table_quiesce_sec}")
 print(f"row_count_sample_size        : {row_count_sample_size}")
-print(f"history_sample_size          : {history_sample_size}")
 print(f"uc_parallel_workers         : {uc_parallel_workers}")
 print(f"pass_rule (fixed)            : {SIMPLE_PASS_RULE}")
 
@@ -125,11 +120,8 @@ while True:
         use_sql_server_audit=USE_SQL_SERVER_AUDIT,
         simplified_recon=SIMPLIFIED_RECON,
         simple_pass_rule=SIMPLE_PASS_RULE,
-        row_count_only_on_flow_complete=False,
-        use_api_update_complete=False,
         table_quiesce_sec=table_quiesce_sec,
         row_count_sample_size=row_count_sample_size,
-        history_sample_size=history_sample_size,
         row_count_parallel_workers=uc_parallel_workers,
         ct_batch_detected_at=ct_batch_detected_at,
         row_count_verified_cache=row_count_verified_cache,

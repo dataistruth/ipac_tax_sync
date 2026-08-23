@@ -12,6 +12,15 @@ ReconType = Literal[1, 2, 3]
 ClientSize = Literal["small", "medium", "large"]
 ClusterTierName = Literal["s1", "s2", "s3", "j1", "j2", "j3"]
 
+RECON_TYPE_ROW_COUNT = 2
+
+
+def recon_type_for_table_name(table_nm: str, recon_type: ReconType) -> ReconType:
+    """Snapshot tables use recon_type 2 (row count vs CT); others keep configured type."""
+    if "snapshot" in table_nm.casefold():
+        return RECON_TYPE_ROW_COUNT
+    return recon_type
+
 
 class CommonTable(BaseModel):
     table_nm: str
@@ -20,6 +29,12 @@ class CommonTable(BaseModel):
     select_cols: str = ""
     scd_type: ScdType = 1
     recon_type: ReconType = 1
+
+    @field_validator("recon_type", mode="before")
+    @classmethod
+    def _apply_snapshot_recon_type(cls, value: int, info) -> int:
+        table_nm = info.data.get("table_nm") or ""
+        return recon_type_for_table_name(str(table_nm), int(value))
 
     @property
     def resolved_select_cols(self) -> str:
@@ -93,6 +108,12 @@ class ClientTableOverride(BaseModel):
     select_cols: str = ""
     scd_type: ScdType = 1
     recon_type: ReconType = 1
+
+    @field_validator("recon_type", mode="before")
+    @classmethod
+    def _apply_snapshot_recon_type(cls, value: int, info) -> int:
+        table_nm = info.data.get("table_nm") or ""
+        return recon_type_for_table_name(str(table_nm), int(value))
 
     @property
     def resolved_select_cols(self) -> str:
