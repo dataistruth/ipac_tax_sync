@@ -236,14 +236,15 @@ Continuous job (`pause_status: UNPAUSED`). Notebook widgets (8):
 | `dest_schema_suffix` | `_poc1` | Suffix for UC destination schema resolution |
 | `poll_interval_sec` | `300` | Poll loop interval |
 | `table_quiesce_sec` | `15` | Buffer after SQL CT change before Delta write must occur |
-| `row_count_sample_size` | `5` | Up to N highest-pending tables get SQL vs UC row-count check |
-| `row_count_parallel_workers` | `5` | Parallel UC Delta `COUNT(1)` only (SQL uses one UNION query) |
+| `row_count_sample_size` | `5` | Up to N highest-pending tables get SQL vs UC row-count check per poll |
+| `history_sample_size` | `5` | Up to N highest-pending tables get DESCRIBE HISTORY per poll |
+| `uc_parallel_workers` | `10` | Parallel threads for history sample + Delta `COUNT(1)` sample; SQL stays one UNION |
 
 **Fixed in notebook (not widgets):** `simple_pass_rule=ct_delta_history`, `simplified_recon=true`, `use_sql_server_audit=true`. SQL host and secret scope come from `client.json`. CT connectivity probe removed — use `test_mssql_python.py` if needed.
 
 **Delta write timestamp:** Recon reads `DESCRIBE HISTORY` on the UC target and uses the latest **MERGE** timestamp (fallback: WRITE/UPDATE/DELETE). DLT SETUP rows supply `updateId` for logging only.
 
-**`ct_delta_history`:** Does not use `flow_progress` or event_log. When watermarks lag CT head, all pending tables must show a Delta write after the SQL CT reference time; up to `row_count_sample_size` tables (highest pending first) also require SQL vs Delta row-count match.
+**`ct_delta_history`:** Does not use `flow_progress` or event_log. When watermarks lag CT head, every pending table must eventually show a Delta write after the SQL CT reference time (up to `history_sample_size` checked per poll; tables that already pass are skipped on later polls). Up to `row_count_sample_size` tables per poll (highest pending first) also require SQL vs Delta row-count match; matching counts are cached and skipped on later polls until batch PASS.
 
 Deploy:
 

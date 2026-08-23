@@ -11,6 +11,7 @@ from common.ops.ingestion_recon_ops import (
     evaluate_table_refresh_after_sql_ct,
     prefetch_row_count_samples,
     select_row_count_sample_tables,
+    select_history_sample_tables,
     summarize_delta_history_refresh,
     SimplifiedTableOutcome,
 )
@@ -98,6 +99,72 @@ def test_select_row_count_sample_tables():
     assert sample == {"big", "mid"}
 
 
+def test_select_row_count_sample_skips_verified():
+    probes = [
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Big",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=50000),
+        ),
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Mid",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=100),
+        ),
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Small",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=5),
+        ),
+    ]
+    from common.ops.ingestion_recon_ops import RowCountVerified
+
+    verified = {
+        "db|big|10": RowCountVerified(50000, 50000, 10),
+    }
+    sample = select_row_count_sample_tables(
+        probes, sample_size=2, database_name="db", verified_cache=verified
+    )
+    assert sample == {"mid", "small"}
+
+
+def test_select_history_sample_skips_verified():
+    probes = [
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Big",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=50000),
+        ),
+        PendingCtTable(
+            schema_name="dbo",
+            table_name="Mid",
+            watermark_before=1,
+            ct_head_version=10,
+            pending=CtPendingCounts(inserts=100),
+        ),
+    ]
+    from common.ops.ingestion_recon_ops import DeltaHistoryVerified
+
+    history_verified = {
+        "db|big|10": DeltaHistoryVerified(10, {"source": "delta_history"}),
+    }
+    sample = select_history_sample_tables(
+        probes,
+        sample_size=1,
+        database_name="db",
+        history_verified_cache=history_verified,
+    )
+    assert sample == {"mid"}
+
+
 def test_prefetch_row_count_samples_parallel():
     ctx = MagicMock()
     ctx.tables = []
@@ -126,8 +193,8 @@ def test_prefetch_row_count_samples_parallel():
     ) as sql_mock, patch(
         "common.ops.ingestion_recon_ops._parallel_delta_row_count",
         side_effect=[
-            ("t1", 10),
-            ("t2", 21),
+            ("t1", "delta", 10),
+            ("t2", "delta", 21),
         ],
     ) as delta_mock:
         result = prefetch_row_count_samples(

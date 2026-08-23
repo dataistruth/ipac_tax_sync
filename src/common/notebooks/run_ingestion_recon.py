@@ -23,7 +23,8 @@ dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
 dbutils.widgets.text("poll_interval_sec", "300", "Poll interval (seconds)")
 dbutils.widgets.text("table_quiesce_sec", "15", "Seconds after SQL CT before Delta write gate")
 dbutils.widgets.text("row_count_sample_size", "5", "Max tables for SQL vs Delta row count")
-dbutils.widgets.text("row_count_parallel_workers", "5", "Parallel Delta row-count workers (0=sequential)")
+dbutils.widgets.text("history_sample_size", "5", "Max tables for DESCRIBE HISTORY per poll")
+dbutils.widgets.text("uc_parallel_workers", "10", "Parallel UC threads (history + Delta count, 0=sequential)")
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "dev7"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"
@@ -32,8 +33,9 @@ dest_schema_suffix = dbutils.widgets.get("dest_schema_suffix").strip() or "_poc1
 poll_interval_sec = int(dbutils.widgets.get("poll_interval_sec").strip() or "300")
 table_quiesce_sec = int(dbutils.widgets.get("table_quiesce_sec").strip() or "15")
 row_count_sample_size = int(dbutils.widgets.get("row_count_sample_size").strip() or "5")
-row_count_parallel_workers = int(
-    dbutils.widgets.get("row_count_parallel_workers").strip() or "5"
+history_sample_size = int(dbutils.widgets.get("history_sample_size").strip() or "5")
+uc_parallel_workers = int(
+    dbutils.widgets.get("uc_parallel_workers").strip() or "10"
 )
 
 # Fixed for this notebook (CT-driven path only).
@@ -49,7 +51,8 @@ print(f"dest_schema_suffix           : {dest_schema_suffix}")
 print(f"poll_interval_sec            : {poll_interval_sec}")
 print(f"table_quiesce_sec            : {table_quiesce_sec}")
 print(f"row_count_sample_size        : {row_count_sample_size}")
-print(f"row_count_parallel_workers   : {row_count_parallel_workers}")
+print(f"history_sample_size          : {history_sample_size}")
+print(f"uc_parallel_workers         : {uc_parallel_workers}")
 print(f"pass_rule (fixed)            : {SIMPLE_PASS_RULE}")
 
 # COMMAND ----------
@@ -71,6 +74,7 @@ from common.ops.ingestion_recon_ops import (
     load_pipeline_names,
     run_all_pipeline_recon,
     RowCountVerified,
+    DeltaHistoryVerified,
 )
 from common.ops.process_log_store import client_nm_from_ingest_pipeline
 from common.ops.recon_store import ensure_recon_ready_table
@@ -105,6 +109,7 @@ print(f"Monitoring {len(contexts)} pipeline(s) for {len(client_names)} client(s)
 iteration = 0
 ct_batch_detected_at: dict[str, datetime] = {}
 row_count_verified_cache: dict[str, RowCountVerified] = {}
+delta_history_verified_cache: dict[str, DeltaHistoryVerified] = {}
 
 while True:
     iteration += 1
@@ -124,9 +129,11 @@ while True:
         use_api_update_complete=False,
         table_quiesce_sec=table_quiesce_sec,
         row_count_sample_size=row_count_sample_size,
-        row_count_parallel_workers=row_count_parallel_workers,
+        history_sample_size=history_sample_size,
+        row_count_parallel_workers=uc_parallel_workers,
         ct_batch_detected_at=ct_batch_detected_at,
         row_count_verified_cache=row_count_verified_cache,
+        delta_history_verified_cache=delta_history_verified_cache,
     )
     poll_elapsed_sec = time.perf_counter() - poll_start
     print(

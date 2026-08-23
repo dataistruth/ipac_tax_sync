@@ -683,9 +683,10 @@ def clear_recon_batch_state(
     ct_head_version: int,
     batch_detected: dict[str, datetime],
     verified_cache: dict[str, RowCountVerified],
+    history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
 ) -> None:
     """
-    After PASS: drop in-memory batch timer and row-count cache for this ct_head.
+    After PASS: drop in-memory batch timer and prefetch caches for this ct_head.
     Next CT activity (new ct_head) starts a fresh detection via mark_batch_detected.
     """
     batch_key = _ct_batch_key(client.src_db_nm, ct_head_version)
@@ -696,6 +697,10 @@ def clear_recon_batch_state(
     for key in list(verified_cache.keys()):
         if key.startswith(db_prefix) and key.endswith(head_suffix):
             verified_cache.pop(key, None)
+    if history_verified_cache is not None:
+        for key in list(history_verified_cache.keys()):
+            if key.startswith(db_prefix) and key.endswith(head_suffix):
+                history_verified_cache.pop(key, None)
     try:
         write_audit_log(
             conn,
@@ -716,22 +721,152 @@ class RowCountVerified:
     ct_head_version: int
 
 
+@dataclass(frozen=True)
+class DeltaHistoryVerified:
+    ct_head_version: int
+    table_refresh: dict[str, Any]
+
+
+def _is_row_count_verified(
+    database_name: str,
+    table_nm: str,
+    ct_head_version: int,
+    verified_cache: dict[str, RowCountVerified],
+) -> bool:
+    vk = _row_count_verified_key(database_name, table_nm, ct_head_version)
+    entry = verified_cache.get(vk)
+    return entry is not None and entry.ct_head_version == ct_head_version
+
+
+def _is_delta_history_verified(
+    database_name: str,
+    table_nm: str,
+    ct_head_version: int,
+    verified_cache: dict[str, DeltaHistoryVerified],
+) -> bool:
+    vk = _row_count_verified_key(database_name, table_nm, ct_head_version)
+    entry = verified_cache.get(vk)
+    return entry is not None and entry.ct_head_version == ct_head_version
+
+
 def _parallel_delta_row_count(
     spark,
     catalog: str,
     ctx: Any,
     table_nm: str,
-) -> tuple[str, int | None]:
+) -> tuple[str, str, int | None]:
     dest_schema = _destination_schema_for_table(ctx, table_nm)
     if not dest_schema:
-        return table_nm.casefold(), None
+        return table_nm.casefold(), "delta", None
     try:
-        return table_nm.casefold(), count_delta_table_rows(
+        return table_nm.casefold(), "delta", count_delta_table_rows(
             spark, catalog, dest_schema, table_nm
         )
     except Exception as exc:
         print(f"[recon] WARN parallel delta_count {table_nm}: {exc}")
-        return table_nm.casefold(), None
+        return table_nm.casefold(), "delta", None
+
+
+def _parallel_table_refresh(
+    spark,
+    catalog: str,
+    ctx: Any,
+    table_nm: str,
+) -> tuple[str, str, dict[str, Any] | None]:
+    dest_schema = _destination_schema_for_table(ctx, table_nm)
+    if not dest_schema:
+        return table_nm.casefold(), "history", None
+    try:
+        return table_nm.casefold(), "history", fetch_streaming_table_refresh_info(
+            spark, catalog, dest_schema, table_nm
+        )
+    except Exception as exc:
+        print(f"[recon] WARN parallel delta_history {table_nm}: {exc}")
+        return table_nm.casefold(), "history", None
+
+
+def prefetch_ct_delta_parallel(
+    spark,
+    catalog: str,
+    ctx: Any,
+    history_probes: list[PendingCtTable],
+    sample_names: list[str],
+    conn: Any,
+    src_schema: str,
+    database_name: str,
+    pending_by_table: dict[str, PendingCtTable],
+    verified_cache: dict[str, RowCountVerified],
+    *,
+    max_workers: int = 10,
+) -> tuple[dict[str, dict[str, Any] | None], dict[str, tuple[int | None, int | None]]]:
+    """
+    Parallel UC work via ThreadPoolExecutor (up to max_workers concurrent spark.sql).
+
+    - DESCRIBE HISTORY for history_probes only (caller caps sample + skips verified)
+    - SQL UNION COUNT(*) + parallel Delta counts for sample tables needing recount
+    """
+    table_refresh_cache: dict[str, dict[str, Any] | None] = {}
+    row_count_cache: dict[str, tuple[int | None, int | None]] = {}
+
+    need_count_names: list[str] = []
+    skipped_verified = 0
+    for table_nm in sample_names:
+        key = table_nm.casefold()
+        probe = pending_by_table.get(key)
+        if probe is None:
+            need_count_names.append(table_nm)
+            continue
+        if _is_row_count_verified(
+            database_name, table_nm, probe.ct_head_version, verified_cache
+        ):
+            entry = verified_cache[
+                _row_count_verified_key(database_name, table_nm, probe.ct_head_version)
+            ]
+            row_count_cache[key] = (entry.sql_count, entry.delta_count)
+            skipped_verified += 1
+        else:
+            need_count_names.append(table_nm)
+
+    if skipped_verified:
+        print(
+            f"[recon] row_count cache hit: {skipped_verified}/{len(sample_names)} "
+            "table(s) skip SQL+Delta recount"
+        )
+
+    sql_counts: dict[str, int | None] = {}
+    if need_count_names:
+        sql_counts = fetch_sql_row_counts_batch(conn, src_schema, need_count_names)
+
+    task_count = len(history_probes) + len(need_count_names)
+    if task_count == 0:
+        return table_refresh_cache, row_count_cache
+
+    workers = max(1, min(max_workers, task_count))
+    if workers <= 1:
+        for probe in history_probes:
+            key, _, value = _parallel_table_refresh(spark, catalog, ctx, probe.table_name)
+            table_refresh_cache[key] = value
+        for table_nm in need_count_names:
+            key, _, delta_val = _parallel_delta_row_count(spark, catalog, ctx, table_nm)
+            row_count_cache[key] = (sql_counts.get(key), delta_val)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_parallel_table_refresh, spark, catalog, ctx, p.table_name)
+                for p in history_probes
+            ]
+            futures.extend(
+                pool.submit(_parallel_delta_row_count, spark, catalog, ctx, table_nm)
+                for table_nm in need_count_names
+            )
+            for fut in as_completed(futures):
+                key, kind, value = fut.result()
+                if kind == "history":
+                    table_refresh_cache[key] = value
+                else:
+                    row_count_cache[key] = (sql_counts.get(key), value)
+
+    return table_refresh_cache, row_count_cache
 
 
 def prefetch_row_count_samples(
@@ -745,78 +880,78 @@ def prefetch_row_count_samples(
     database_name: str,
     verified_cache: dict[str, RowCountVerified] | None = None,
     *,
-    max_delta_workers: int = 5,
+    max_delta_workers: int = 10,
 ) -> dict[str, tuple[int | None, int | None]]:
-    """
-    Sample row counts: one SQL UNION COUNT(*) where needed; Delta COUNT only for
-    tables not already verified at this ct_head (sql_count == delta_count).
-    """
-    if not table_names:
-        return {}
+    """Row-count sample only (tests); production uses prefetch_ct_delta_parallel."""
+    _, row_counts = prefetch_ct_delta_parallel(
+        spark,
+        catalog,
+        ctx,
+        [],
+        table_names,
+        conn,
+        src_schema,
+        database_name,
+        pending_by_table,
+        verified_cache if verified_cache is not None else {},
+        max_workers=max_delta_workers,
+    )
+    return row_counts
 
-    verified = verified_cache if verified_cache is not None else {}
-    result: dict[str, tuple[int | None, int | None]] = {}
-    need_count_names: list[str] = []
-    skipped_verified = 0
 
-    for table_nm in table_names:
-        key = table_nm.casefold()
-        probe = pending_by_table.get(key)
-        if probe is None:
-            need_count_names.append(table_nm)
-            continue
-        vk = _row_count_verified_key(database_name, table_nm, probe.ct_head_version)
-        entry = verified.get(vk)
-        if entry is not None and entry.ct_head_version == probe.ct_head_version:
-            result[key] = (entry.sql_count, entry.delta_count)
-            skipped_verified += 1
-        else:
-            need_count_names.append(table_nm)
-
-    if skipped_verified:
-        print(
-            f"[recon] row_count cache hit: {skipped_verified}/{len(table_names)} "
-            "table(s) skip SQL+Delta recount"
+def _select_prefetch_sample_tables(
+    pending_tables: list[PendingCtTable],
+    sample_size: int,
+    database_name: str,
+    verified_cache: dict[str, Any],
+    is_verified: Any,
+) -> set[str]:
+    """Highest pending CT first; skip tables already verified for this ct_head."""
+    if sample_size <= 0 or not pending_tables:
+        return set()
+    candidates = [
+        p
+        for p in pending_tables
+        if not is_verified(
+            database_name, p.table_name, p.ct_head_version, verified_cache
         )
+    ]
+    ranked = sorted(candidates, key=lambda p: p.pending.total, reverse=True)
+    return {p.table_name.casefold() for p in ranked[:sample_size]}
 
-    if not need_count_names:
-        return result
 
-    keys_needed = {t.casefold() for t in need_count_names}
-    sql_counts = fetch_sql_row_counts_batch(conn, src_schema, need_count_names)
-    delta_counts: dict[str, int | None] = {k: None for k in keys_needed}
-
-    workers = max(1, min(max_delta_workers, len(need_count_names)))
-    if workers <= 1:
-        for table_nm in need_count_names:
-            key, value = _parallel_delta_row_count(spark, catalog, ctx, table_nm)
-            delta_counts[key] = value
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [
-                pool.submit(_parallel_delta_row_count, spark, catalog, ctx, table_nm)
-                for table_nm in need_count_names
-            ]
-            for fut in as_completed(futures):
-                key, value = fut.result()
-                delta_counts[key] = value
-
-    for table_nm in need_count_names:
-        key = table_nm.casefold()
-        result[key] = (sql_counts.get(key), delta_counts.get(key))
-
-    return result
+def select_history_sample_tables(
+    pending_tables: list[PendingCtTable],
+    sample_size: int = 5,
+    database_name: str = "",
+    history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
+) -> set[str]:
+    """Up to sample_size tables needing DESCRIBE HISTORY this poll."""
+    cache = history_verified_cache if history_verified_cache is not None else {}
+    return _select_prefetch_sample_tables(
+        pending_tables,
+        sample_size,
+        database_name,
+        cache,
+        _is_delta_history_verified,
+    )
 
 
 def select_row_count_sample_tables(
     pending_tables: list[PendingCtTable],
     sample_size: int = 5,
+    database_name: str = "",
+    verified_cache: dict[str, RowCountVerified] | None = None,
 ) -> set[str]:
-    """Pick up to sample_size changed tables (highest pending CT first) for row count."""
-    if sample_size <= 0 or not pending_tables:
-        return set()
-    ranked = sorted(pending_tables, key=lambda p: p.pending.total, reverse=True)
-    return {p.table_name.casefold() for p in ranked[:sample_size]}
+    """Up to sample_size tables needing SQL vs Delta row count this poll."""
+    cache = verified_cache if verified_cache is not None else {}
+    return _select_prefetch_sample_tables(
+        pending_tables,
+        sample_size,
+        database_name,
+        cache,
+        _is_row_count_verified,
+    )
 
 
 def evaluate_ct_delta_history_recon(
@@ -1111,10 +1246,12 @@ def run_simplified_pipeline_recon(
     event_log_watermark: ReconEventLogWatermark | None = None,
     ct_head_cache: dict[str, int] | None = None,
     row_count_verified_cache: dict[str, RowCountVerified] | None = None,
+    delta_history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
     ct_batch_detected_at: dict[str, datetime] | None = None,
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
-    row_count_parallel_workers: int = 5,
+    history_sample_size: int = 5,
+    uc_parallel_workers: int = 10,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -1138,7 +1275,8 @@ def run_simplified_pipeline_recon(
         f"use_api_update_complete={use_api_update_complete} "
         f"table_quiesce_sec={table_quiesce_sec} "
         f"row_count_sample_size={row_count_sample_size} "
-        f"row_count_parallel_workers={row_count_parallel_workers}"
+        f"history_sample_size={history_sample_size} "
+        f"uc_parallel_workers={uc_parallel_workers}"
     )
     if pipeline_detail:
         print(f"[recon] {ctx.pipeline_key} {describe_pipeline_status(pipeline_detail)}")
@@ -1218,16 +1356,35 @@ def run_simplified_pipeline_recon(
     verified_cache = (
         row_count_verified_cache if row_count_verified_cache is not None else {}
     )
+    history_verified_cache = (
+        delta_history_verified_cache if delta_history_verified_cache is not None else {}
+    )
     pending_by_table = pending_by_table_early or {
         p.table_name.casefold(): p for p in pending_tables
     }
 
     row_count_sample: set[str] = set()
+    history_sample: set[str] = set()
     if pass_rule == "ct_delta_history":
-        row_count_sample = select_row_count_sample_tables(
-            pending_tables, row_count_sample_size
+        history_sample = select_history_sample_tables(
+            pending_tables,
+            history_sample_size,
+            client.src_db_nm,
+            history_verified_cache,
         )
+        row_count_sample = select_row_count_sample_tables(
+            pending_tables,
+            row_count_sample_size,
+            client.src_db_nm,
+            verified_cache,
+        )
+        history_list = sorted(history_sample)
         sample_list = sorted(row_count_sample)
+        print(
+            f"[recon] {ctx.pipeline_key}: history sample "
+            f"({len(history_list)}/{len(pending_tables)} tables): "
+            f"{', '.join(history_list) or 'none'}"
+        )
         print(
             f"[recon] {ctx.pipeline_key}: row_count sample "
             f"({len(sample_list)}/{len(pending_tables)} tables): "
@@ -1235,63 +1392,59 @@ def run_simplified_pipeline_recon(
         )
 
     row_count_cache: dict[str, tuple[int | None, int | None]] = {}
-    if pass_rule == "ct_delta_history" and row_count_sample:
+    table_refresh_cache: dict[str, dict[str, Any] | None] = {}
+    if pass_rule == "ct_delta_history" and pending_tables:
+        history_probes = [
+            p for p in pending_tables if p.table_name.casefold() in history_sample
+        ]
         sample_names = [
             p.table_name
             for p in pending_tables
             if p.table_name.casefold() in row_count_sample
         ]
-        if sample_names:
-            prefetch_start = time.perf_counter()
-            row_count_cache = prefetch_row_count_samples(
-                spark,
-                catalog,
-                ctx,
-                src_schema,
-                sample_names,
-                conn,
-                pending_by_table,
-                client.src_db_nm,
-                verified_cache,
-                max_delta_workers=row_count_parallel_workers,
+        prefetch_start = time.perf_counter()
+        table_refresh_cache, row_count_cache = prefetch_ct_delta_parallel(
+            spark,
+            catalog,
+            ctx,
+            history_probes,
+            sample_names,
+            conn,
+            src_schema,
+            client.src_db_nm,
+            pending_by_table,
+            verified_cache,
+            max_workers=uc_parallel_workers,
+        )
+        prefetch_elapsed = time.perf_counter() - prefetch_start
+        workers_used = max(
+            1,
+            min(
+                uc_parallel_workers,
+                len(history_probes) + len(sample_names),
+            ),
+        )
+        print(
+            f"[recon] {ctx.pipeline_key}: uc_parallel prefetch "
+            f"workers={workers_used} history_tables={len(history_probes)} "
+            f"row_count_sample={len(sample_names)} elapsed={prefetch_elapsed:.1f}s"
+        )
+        for table_nm in sample_names:
+            key = table_nm.casefold()
+            sql_count, delta_count = row_count_cache.get(key, (None, None))
+            dest_schema = _destination_schema_for_table(ctx, table_nm)
+            uc_ref = (
+                resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
+                if dest_schema
+                else None
             )
-            prefetch_elapsed = time.perf_counter() - prefetch_start
-            delta_workers = max(
-                1,
-                min(
-                    row_count_parallel_workers,
-                    len(sample_names) - sum(
-                        1
-                        for n in sample_names
-                        if _row_count_verified_key(
-                            client.src_db_nm,
-                            n,
-                            pending_by_table[n.casefold()].ct_head_version,
-                        ) in verified_cache
-                    ),
-                ),
+            resolved = (
+                uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
             )
             print(
-                f"[recon] {ctx.pipeline_key}: row_count prefetch "
-                f"sql=UNION({len(sample_names)}) delta_workers={delta_workers} "
-                f"elapsed={prefetch_elapsed:.1f}s"
+                f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
+                f"sql_count={sql_count} delta_count={delta_count} {resolved}"
             )
-            for table_nm in sample_names:
-                key = table_nm.casefold()
-                sql_count, delta_count = row_count_cache.get(key, (None, None))
-                dest_schema = _destination_schema_for_table(ctx, table_nm)
-                uc_ref = (
-                    resolve_uc_table_ref(spark, catalog, dest_schema, table_nm)
-                    if dest_schema
-                    else None
-                )
-                resolved = (
-                    uc_ref.name if uc_ref else f"{catalog}.{dest_schema}.{table_nm}"
-                )
-                print(
-                    f"[recon] {ctx.pipeline_key} {table_nm}: row_count sample "
-                    f"sql_count={sql_count} delta_count={delta_count} {resolved}"
-                )
 
     ready_written = 0
     waiting_count = 0
@@ -1364,11 +1517,28 @@ def run_simplified_pipeline_recon(
         sql_ct_ref = probe.sql_ct_reference_at or probe.watermark_updated_at
 
         if pass_rule in PASS_RULES_DELTA_HISTORY:
-            table_refresh = (
-                fetch_streaming_table_refresh_info(spark, catalog, dest_schema, table_nm)
-                if dest_schema
-                else None
+            in_history_sample = table_nm.casefold() in history_sample
+            table_refresh = table_refresh_cache.get(table_nm.casefold())
+            hist_key = _row_count_verified_key(
+                client.src_db_nm, table_nm, probe.ct_head_version
             )
+            hist_cached = history_verified_cache.get(hist_key)
+            if table_refresh is None and hist_cached is not None:
+                table_refresh = hist_cached.table_refresh
+            elif (
+                table_refresh is None
+                and dest_schema
+                and in_history_sample
+                and not _is_delta_history_verified(
+                    client.src_db_nm,
+                    table_nm,
+                    probe.ct_head_version,
+                    history_verified_cache,
+                )
+            ):
+                table_refresh = fetch_streaming_table_refresh_info(
+                    spark, catalog, dest_schema, table_nm
+                )
             if table_refresh:
                 dlt_id = table_refresh.get("dlt_update_id") or "n/a"
                 print(
@@ -1434,13 +1604,30 @@ def run_simplified_pipeline_recon(
                 delta_count,
                 require_row_count=in_sample,
             )
-            if in_sample and status == "PASS" and sql_count is not None and delta_count is not None:
-                vk = _row_count_verified_key(
-                    client.src_db_nm, table_nm, probe.ct_head_version
+            hist_status, _ = evaluate_table_refresh_after_sql_ct(
+                table_refresh,
+                sql_ct_ref,
+                quiesce_sec=table_quiesce_sec,
+            )
+            if (
+                hist_status == "PASS"
+                and table_refresh is not None
+                and not _is_delta_history_verified(
+                    client.src_db_nm,
+                    table_nm,
+                    probe.ct_head_version,
+                    history_verified_cache,
                 )
-                verified_cache[vk] = RowCountVerified(
-                    sql_count, delta_count, probe.ct_head_version
+            ):
+                history_verified_cache[hist_key] = DeltaHistoryVerified(
+                    probe.ct_head_version,
+                    table_refresh,
                 )
+            if in_sample and sql_count is not None and delta_count is not None:
+                if sql_count == delta_count:
+                    verified_cache[hist_key] = RowCountVerified(
+                        sql_count, delta_count, probe.ct_head_version
+                    )
         elif pass_rule in ("auto", "flow_complete") and flow_complete:
             if summary is not None and summary.final_flow_status == "COMPLETED":
                 status, message = "PASS", "flow_progress COMPLETED in event log"
@@ -1676,6 +1863,7 @@ def run_simplified_pipeline_recon(
                         ct_head_version,
                         batch_detected,
                         verified_cache,
+                        history_verified_cache,
                     )
                 print(
                     f"[recon] PASS {ctx.pipeline_key} database={client.src_db_nm} "
@@ -2079,9 +2267,11 @@ def run_all_pipeline_recon(
     use_api_update_complete: bool = True,
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
-    row_count_parallel_workers: int = 5,
+    history_sample_size: int = 5,
+    row_count_parallel_workers: int = 10,
     ct_batch_detected_at: dict[str, datetime] | None = None,
     row_count_verified_cache: dict[str, RowCountVerified] | None = None,
+    delta_history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
 ) -> dict[str, int]:
     """Poll hidden event logs only for pipelines with activity; recon changed flows."""
     if simplified_recon and not use_sql_server_audit:
@@ -2142,6 +2332,8 @@ def run_all_pipeline_recon(
         ct_batch_detected_at = {}
     if row_count_verified_cache is None:
         row_count_verified_cache = {}
+    if delta_history_verified_cache is None:
+        delta_history_verified_cache = {}
 
     for ctx, src_catalog, src_schema, ipac_client in pipeline_contexts:
         totals["pipelines"] += 1
@@ -2282,10 +2474,12 @@ def run_all_pipeline_recon(
                 event_log_watermark=watermark,
                 ct_head_cache=ct_head_cache,
                 row_count_verified_cache=row_count_verified_cache,
+                delta_history_verified_cache=delta_history_verified_cache,
                 ct_batch_detected_at=ct_batch_detected_at,
                 table_quiesce_sec=table_quiesce_sec,
                 row_count_sample_size=row_count_sample_size,
-                row_count_parallel_workers=row_count_parallel_workers,
+                history_sample_size=history_sample_size,
+                uc_parallel_workers=row_count_parallel_workers,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n
