@@ -42,5 +42,12 @@
       "node_type_id": "Standard_D64s_v5",
       "local_cores": 64
     }
+  },
+  "recon_pool": {
+    "tier": "j2",
+    "instance_pool_name": "ipac_recon_pool",
+    "bundle_resource_key": "ipac_recon_pool",
+    "min_idle_instances": 1,
+    "max_capacity": 3
   }
 }

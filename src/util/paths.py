@@ -72,3 +72,7 @@ def generated_config_schema_dir() -> Path:
 
 def resources_jobs_dir() -> Path:
     return project_root() / "resources" / "jobs"
+
+
+def resources_instance_pools_dir() -> Path:
+    return project_root() / "resources" / "instance_pools"
