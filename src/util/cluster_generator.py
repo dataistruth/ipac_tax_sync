@@ -8,6 +8,7 @@ from util.bundle_config import (
     HEARTBEAT_JOB_ALERT_MAIL_VAR_REF,
     IPAC_METADATA_SCHEMA_VAR_REF,
     JOB_TAG_VAR_REF,
+    LAKEFLOW_SINGLE_USER_VAR_REF,
     PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
     RECON_POLL_INTERVAL_SEC_VAR_REF,
@@ -37,6 +38,7 @@ def generate_ingestion_recon_job_yaml(
         tier,
         spark_version_ref=PIPELINE_SPARK_VERSION_VAR_REF,
         num_workers_ref=PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
+        single_user_name_ref=LAKEFLOW_SINGLE_USER_VAR_REF,
         indent="            ",
         include_single_node_custom_tag=False,
     )
@@ -70,7 +72,6 @@ def generate_ingestion_recon_job_yaml(
         "              ResourceClass: SingleNode",
         f"              bundle: {JOB_TAG_VAR_REF}",
         "              purpose: sql_recon",
-        "            data_security_mode: SINGLE_USER",
         "      tasks:",
         "        - task_key: run_ingestion_recon",
         f"          job_cluster_key: {RECON_JOB_CLUSTER_KEY}",

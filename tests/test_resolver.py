@@ -1,6 +1,9 @@
 """Tests for ipac_delta_sync config/common model."""
 
 from util.bundle_config import (
+    LAKEFLOW_INSTANCE_POOL_ID_REF,
+    PIPELINE_CLUSTER_AUTOSCALE_MIN_VAR_REF,
+    PIPELINE_CLUSTER_AUTOSCALE_MAX_VAR_REF,
     pipeline_cluster_num_workers_var_ref,
     pipeline_tag_var_ref,
     pipeline_max_update_retry_attempts_var_ref,
@@ -39,6 +42,9 @@ PIPELINE_TAG_REF = pipeline_tag_var_ref()
 RETRY_REF = pipeline_max_update_retry_attempts_var_ref()
 SPARK_REF = pipeline_spark_version_var_ref()
 NUM_WORKERS_REF = pipeline_cluster_num_workers_var_ref()
+POOL_REF = LAKEFLOW_INSTANCE_POOL_ID_REF
+AUTOSCALE_MIN_REF = PIPELINE_CLUSTER_AUTOSCALE_MIN_VAR_REF
+AUTOSCALE_MAX_REF = PIPELINE_CLUSTER_AUTOSCALE_MAX_VAR_REF
 
 
 def _active_clients():
@@ -117,18 +123,20 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "development: false" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
-    assert "node_type_id: Standard_D32s_v3" in yaml_text
+    assert f"instance_pool_id: {POOL_REF}" in yaml_text
     assert "data_security_mode: SINGLE_USER" in yaml_text
     assert "single_user_name: ${var.lakeflow_single_user}" in yaml_text
-    assert "instance_pool_id:" not in yaml_text
+    assert f"min_workers: {AUTOSCALE_MIN_REF}" in yaml_text
+    assert f"max_workers: {AUTOSCALE_MAX_REF}" in yaml_text
+    assert "resources.instance_pools.jcp1" in yaml_text
     assert f"spark_version: {SPARK_REF}" in yaml_text
-    assert f"num_workers: {NUM_WORKERS_REF}" in yaml_text
-    assert "spark.master: local[32]" in yaml_text
-    assert "ResourceClass: SingleNode" in yaml_text
-    assert "autoscale:" not in yaml_text
+    assert "node_type_id:" not in yaml_text
+    assert "num_workers:" not in yaml_text
+    assert "spark.master:" not in yaml_text
+    assert "ResourceClass: SingleNode" not in yaml_text
+    assert "autoscale:" in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
-    assert "instance_pools" not in yaml_text
     assert "event_log:" not in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
@@ -151,10 +159,11 @@ def test_generate_yaml_uses_j3_for_large_client():
         uc_catalog_ref=UC_REF,
         num_of_tables_in_pipeline=1,
         dest_schema_suffix="poc_1",
+        use_instance_pool=False,
     )
     assert "node_type_id: Standard_D64s_v3" in yaml_text
     assert "spark.master: local[64]" in yaml_text
-    assert "autoscale:" not in yaml_text
+    assert "instance_pool_id:" not in yaml_text
 
 
 def test_generate_yaml_uses_j1_for_small_client():
@@ -169,6 +178,7 @@ def test_generate_yaml_uses_j1_for_small_client():
         uc_catalog_ref=UC_REF,
         num_of_tables_in_pipeline=1,
         dest_schema_suffix="poc_1",
+        use_instance_pool=False,
     )
     assert "node_type_id: Standard_D16s_v3" in yaml_text
     assert "spark.master: local[16]" in yaml_text

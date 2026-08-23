@@ -12,6 +12,7 @@ from util.bundle_config import (
     resolve_dest_schema_suffix,
     resolve_ipac_metadata_schema,
     resolve_num_of_tables_in_pipeline,
+    resolve_pipeline_use_instance_pool,
     resolve_recon_cluster_tier,
     resolve_uc_catalog,
     pipeline_tag_var_ref,
@@ -182,6 +183,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         override=getattr(args, "ipac_metadata_schema", None),
         target=getattr(args, "target", None),
     )
+    use_instance_pool = resolve_pipeline_use_instance_pool(
+        target=getattr(args, "target", None),
+    )
     schema_dir = generated_schema_dir()
     config_schema_dir = generated_config_schema_dir()
     config_dir = generated_config_dir()
@@ -218,6 +222,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         num_of_tables_in_pipeline=num_tables,
                         dest_schema_suffix=dest_schema_suffix,
                         pipeline_tag_ref=pipeline_tag_ref,
+                        use_instance_pool=use_instance_pool,
                     )
                 )
                 print()
@@ -242,6 +247,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 dest_schema_suffix=dest_schema_suffix,
                 pipeline_tag_ref=pipeline_tag_ref,
                 metadata_schema=metadata_schema,
+                use_instance_pool=use_instance_pool,
             )
             pipeline_batches = chunk_tables(tables, num_tables)
             generated_pipeline_names.extend(

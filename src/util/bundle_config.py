@@ -19,6 +19,13 @@ PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF = "${var.pipeline_cluster_num_workers}"
 HEARTBEAT_JOB_ALERT_MAIL_VAR_REF = "${var.heartbeat_job_alert_mail}"
 RECON_POLL_INTERVAL_SEC_VAR_REF = "${var.recon_poll_interval_sec}"
 LAKEFLOW_SINGLE_USER_VAR_REF = "${var.lakeflow_single_user}"
+LAKEFLOW_INSTANCE_POOL_ID_REF = "${resources.instance_pools.jcp1.id}"
+PIPELINE_CLUSTER_AUTOSCALE_MIN_VAR_REF = "${var.pipeline_cluster_autoscale_min}"
+PIPELINE_CLUSTER_AUTOSCALE_MAX_VAR_REF = "${var.pipeline_cluster_autoscale_max}"
+INSTANCE_POOL_NODE_TYPE_VAR_REF = "${var.instance_pool_node_type_id}"
+INSTANCE_POOL_MIN_IDLE_VAR_REF = "${var.instance_pool_min_idle_instances}"
+INSTANCE_POOL_MAX_CAPACITY_VAR_REF = "${var.instance_pool_max_capacity}"
+LAKEFLOW_INSTANCE_POOL_RESOURCE_KEY = "jcp1"
 
 
 def databricks_yml_path() -> Path:
@@ -210,3 +217,35 @@ def resolve_lakeflow_single_user(
     if isinstance(value, str):
         return value.strip()
     return str(value).strip()
+
+
+def lakeflow_instance_pool_id_ref() -> str:
+    return LAKEFLOW_INSTANCE_POOL_ID_REF
+
+
+def pipeline_cluster_autoscale_min_var_ref() -> str:
+    return PIPELINE_CLUSTER_AUTOSCALE_MIN_VAR_REF
+
+
+def pipeline_cluster_autoscale_max_var_ref() -> str:
+    return PIPELINE_CLUSTER_AUTOSCALE_MAX_VAR_REF
+
+
+def resolve_pipeline_use_instance_pool(
+    override: bool | str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> bool:
+    if override is not None:
+        if isinstance(override, bool):
+            return override
+        return str(override).strip().lower() in ("1", "true", "yes", "on")
+    value = _resolve_variable(
+        "pipeline_use_instance_pool",
+        True,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")

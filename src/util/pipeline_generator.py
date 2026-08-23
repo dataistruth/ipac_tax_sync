@@ -10,7 +10,11 @@ from util.bundle_config import (
     PIPELINE_TAG_VAR_REF,
     UC_CATALOG_VAR_REF,
 )
-from util.cluster_tiers import expected_job_tier_for_size, format_pipeline_cluster_lines
+from util.cluster_tiers import (
+    expected_job_tier_for_size,
+    format_pipeline_cluster_lines,
+    lakeflow_instance_pool_depends_on,
+)
 from util.schema_generator import schema_resource_key, schema_resource_name_ref
 
 if TYPE_CHECKING:
@@ -92,6 +96,7 @@ def _pipeline_resource_lines(
     dest_schema_suffix: str,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
+    use_instance_pool: bool = True,
 ) -> list[str]:
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
@@ -107,26 +112,32 @@ def _pipeline_resource_lines(
         f"    {pipeline_key}:",
         f"      name: {pipeline_key}",
         "      depends_on:",
-        f"        - {meta_dep}",
-        f"        - {client_raw_dep}",
-        "      pipeline_type: MANAGED_INGESTION",
-        "      permissions:",
-        "        - level: CAN_MANAGE",
-        "          group_name: ${var.grant_group}",
-        "      tags:",
-        f"        bundle: {pipeline_tag_ref}",
-        "      channel: PREVIEW",
-        "      serverless: false",
-        "      continuous: true",
-        "      development: false",
-        "      configuration:",
-        f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
-        f"      catalog: {uc_catalog_ref}",
-        f"      schema: {pipeline_schema_ref}",
     ]
+    if use_instance_pool:
+        lines.append(f"        - {lakeflow_instance_pool_depends_on()}")
+    lines.extend(
+        [
+            f"        - {meta_dep}",
+            f"        - {client_raw_dep}",
+            "      pipeline_type: MANAGED_INGESTION",
+            "      permissions:",
+            "        - level: CAN_MANAGE",
+            "          group_name: ${var.grant_group}",
+            "      tags:",
+            f"        bundle: {pipeline_tag_ref}",
+            "      channel: PREVIEW",
+            "      serverless: false",
+            "      continuous: true",
+            "      development: false",
+            "      configuration:",
+            f"        pipelines.numUpdateRetryAttempts: {pipeline_max_update_retry_attempts_ref}",
+            f"      catalog: {uc_catalog_ref}",
+            f"      schema: {pipeline_schema_ref}",
+        ]
+    )
 
     if tier:
-        lines.extend(format_pipeline_cluster_lines(tier))
+        lines.extend(format_pipeline_cluster_lines(tier, use_instance_pool=use_instance_pool))
     else:
         lines.append(f"      # cluster tier {job_tier_key}: missing in cluster_config.json")
 
@@ -158,6 +169,7 @@ def generate_client_pipelines_yaml(
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
+    use_instance_pool: bool = True,
 ) -> str:
     if not tables:
         raise ValueError(f"No tables to generate for {client.client_nm}")
@@ -171,10 +183,16 @@ def generate_client_pipelines_yaml(
     tier_note = ""
     if tier:
         job_tier_key = expected_job_tier_for_size(client.client_size)
-        tier_note = (
-            f"# client_size: {client.client_size} → {job_tier_key} "
-            f"({tier.node_type_id} single-node per pipeline)"
-        )
+        if use_instance_pool:
+            tier_note = (
+                f"# client_size: {client.client_size} → shared pool jcp1 "
+                f"(autoscale 1–3, SINGLE_USER SP)"
+            )
+        else:
+            tier_note = (
+                f"# client_size: {client.client_size} → {job_tier_key} "
+                f"({tier.node_type_id} single-node per pipeline)"
+            )
 
     batch_summary = ", ".join(str(len(b)) for b in batches)
     client_schema_key = schema_resource_key(raw_schema)
@@ -204,6 +222,7 @@ def generate_client_pipelines_yaml(
                 dest_schema_suffix,
                 pipeline_max_update_retry_attempts_ref,
                 metadata_schema,
+                use_instance_pool,
             )
         )
 
@@ -222,6 +241,7 @@ def write_bundle_pipeline_yaml(
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
+    use_instance_pool: bool = True,
 ) -> str:
     from pathlib import Path
 
@@ -237,6 +257,7 @@ def write_bundle_pipeline_yaml(
         pipeline_tag_ref=pipeline_tag_ref,
         pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
         metadata_schema=metadata_schema,
+        use_instance_pool=use_instance_pool,
     )
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(content, encoding="utf-8")
