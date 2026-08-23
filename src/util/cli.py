@@ -17,7 +17,7 @@ from util.bundle_config import (
     pipeline_tag_var_ref,
     uc_catalog_var_ref,
 )
-from util.cluster_generator import write_ingestion_recon_job_yaml, write_recon_instance_pool_yaml
+from util.cluster_generator import write_ingestion_recon_job_yaml
 from util.config_loader import (
     format_validation_error,
     get_client,
@@ -35,7 +35,6 @@ from util.paths import (
     generated_config_dir,
     generated_config_schema_dir,
     generated_schema_dir,
-    resources_instance_pools_dir,
     resources_jobs_dir,
 )
 from util.schema_generator import write_client_schema_resource_yaml, write_ipac_metadata_schema_resource_yaml
@@ -195,12 +194,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             uc_catalog_ref=uc_catalog_ref,
         )
         print(f"Generated {ipac_metadata_schema_path}", flush=True)
-        recon_pool_path = write_recon_instance_pool_yaml(
-            cluster_cfg,
-            recon_cluster_tier,
-            resources_instance_pools_dir() / "ipac_recon_pool.yml",
-        )
-        print(f"Generated {recon_pool_path}", flush=True)
         recon_job_path = write_ingestion_recon_job_yaml(
             cluster_cfg,
             recon_cluster_tier,

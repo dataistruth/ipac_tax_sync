@@ -122,19 +122,8 @@ class ClusterTier(BaseModel):
     policy_id: str = ""
 
 
-class ReconPoolConfig(BaseModel):
-    """Dedicated instance pool for ingestion recon (separate core quota from pipelines)."""
-
-    tier: str = "j2"
-    instance_pool_name: str = "ipac_recon_pool"
-    bundle_resource_key: str = "ipac_recon_pool"
-    min_idle_instances: int = 1
-    max_capacity: int = 3
-
-
 class ClusterConfig(BaseModel):
     tiers: dict[str, ClusterTier]
-    recon_pool: ReconPoolConfig | None = None
 
 
 class EffectiveTable(BaseModel):

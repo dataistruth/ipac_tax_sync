@@ -1,8 +1,7 @@
 # =============================================================================
 # ipac_delta_sync — Lakeflow Connect scaffolding
 #
-# Compute: pipelines use j1/j2/j3 from cluster_config.json; recon uses dedicated
-# D32 instance pool (min 1 / max 3) + single-node job cluster on that pool.
+# Compute: pipelines + recon use j1/j2/j3 single-node job clusters from cluster_config.json.
 # =============================================================================
 bundle:
   name: ipac-delta-sync
@@ -20,7 +19,6 @@ sync:
 include:
   - generated/config/schema/*.yml
   - generated/bundle/*.yml
-  - resources/instance_pools/*.yml
   - resources/jobs/*.yml
 
 variables:
@@ -52,10 +50,6 @@ variables:
     default: 0
   recon_cluster_tier:
     default: j2
-  recon_pool_min_idle_instances:
-    default: 1
-  recon_pool_max_capacity:
-    default: 3
 
 targets:
   dev:
@@ -79,8 +73,6 @@ targets:
       num_of_tables_in_pipeline: 10
       recon_cluster_tier: j2
       pipeline_cluster_num_workers: 0
-      recon_pool_min_idle_instances: 1
-      recon_pool_max_capacity: 3
 
   prod:
     mode: production
@@ -99,5 +91,3 @@ targets:
       pipeline_max_update_retry_attempts: 2
       recon_cluster_tier: j2
       pipeline_cluster_num_workers: 0
-      recon_pool_min_idle_instances: 1
-      recon_pool_max_capacity: 3

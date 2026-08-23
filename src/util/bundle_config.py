@@ -18,8 +18,6 @@ PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
 PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF = "${var.pipeline_cluster_num_workers}"
 HEARTBEAT_JOB_ALERT_MAIL_VAR_REF = "${var.heartbeat_job_alert_mail}"
 RECON_POLL_INTERVAL_SEC_VAR_REF = "${var.recon_poll_interval_sec}"
-RECON_POOL_MIN_IDLE_INSTANCES_VAR_REF = "${var.recon_pool_min_idle_instances}"
-RECON_POOL_MAX_CAPACITY_VAR_REF = "${var.recon_pool_max_capacity}"
 
 
 def databricks_yml_path() -> Path:
