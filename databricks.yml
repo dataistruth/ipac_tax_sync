@@ -59,15 +59,15 @@ variables:
   pipeline_use_instance_pool:
     default: true
   instance_pool_node_type_id:
-    default: Standard_D16s_v3
+    default: Standard_D8s_v3
   instance_pool_min_idle_instances:
-    default: 1
-  instance_pool_max_capacity:
-    default: 10
-  pipeline_cluster_autoscale_min:
-    default: 1
-  pipeline_cluster_autoscale_max:
     default: 3
+  instance_pool_max_capacity:
+    default: 30
+  pipeline_cluster_autoscale_min:
+    default: 3
+  pipeline_cluster_autoscale_max:
+    default: 5
 
 targets:
   dev:

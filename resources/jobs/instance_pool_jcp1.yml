@@ -1,5 +1,5 @@
-# Shared warm pool for all Lakeflow Connect pipeline clusters (D16s_v3).
-# Included via resources/jobs/*.yml — each pipeline uses ${resources.instance_pools.jcp1.id}.
+# Shared warm pool for all Lakeflow Connect pipeline clusters (D8s_v3, 8 vCPU).
+# Pool: min_idle_instances + max_capacity. Cluster autoscale: min/max workers (vars).
 resources:
   instance_pools:
     jcp1:
