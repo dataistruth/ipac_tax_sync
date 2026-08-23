@@ -23,23 +23,23 @@
     },
     "j1": {
       "label": "job_cluster_small",
-      "description": "Single-node D16s_v5 ingest cluster per pipeline (Dsv5 quota family)",
+      "description": "Single-node D16s_v3 ingest cluster per pipeline (Dsv3 family)",
       "serverless": false,
-      "node_type_id": "Standard_D16s_v5",
+      "node_type_id": "Standard_D16s_v3",
       "local_cores": 16
     },
     "j2": {
       "label": "job_cluster_medium",
-      "description": "Single-node D32s_v5 ingest cluster per pipeline (Dsv5 quota family)",
+      "description": "Single-node D32s_v3 ingest / recon cluster (Dsv3 family)",
       "serverless": false,
-      "node_type_id": "Standard_D32s_v5",
+      "node_type_id": "Standard_D32s_v3",
       "local_cores": 32
     },
     "j3": {
       "label": "job_cluster_large",
-      "description": "Single-node D64s_v5 ingest cluster per pipeline (Dsv5 quota family)",
+      "description": "Single-node D64s_v3 ingest cluster per pipeline (Dsv3 family)",
       "serverless": false,
-      "node_type_id": "Standard_D64s_v5",
+      "node_type_id": "Standard_D64s_v3",
       "local_cores": 64
     }
   }
