@@ -36,11 +36,11 @@ include:
 
 variables:
   uc_catalog:
-    default: ipac_tax_synch
+    default: dev7
     description: Common UC catalog for all clients
   dest_schema_suffix:
-    default: "_poc1"
-    description: Suffix appended to client_nm for raw schema ({client_nm}{suffix}, e.g. _poc1)
+    default: "_poc_1"
+    description: Suffix appended to client_nm for raw schema ({client_nm}{suffix}, e.g. _poc_1)
   uc_lkf_staging_schema:
     default: ""
     description: Pipeline-level Lakeflow staging schema (${var.uc_lkf_staging_schema}); table destination_schema remains per-client
@@ -131,7 +131,7 @@ targets:
       pipelines_development: false
     variables:
       uc_catalog: dev7
-      dest_schema_suffix: "_poc1"
+      dest_schema_suffix: "_poc_1"
       ipac_metadata_schema: ipac_metadata
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
