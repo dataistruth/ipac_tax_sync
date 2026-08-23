@@ -1,12 +1,13 @@
 """Tests for ipac_delta_sync config/common model."""
 
 from util.bundle_config import (
+    pipeline_cluster_num_workers_var_ref,
     pipeline_tag_var_ref,
     pipeline_max_update_retry_attempts_var_ref,
-    pipeline_instance_pool_id_ref,
     pipeline_spark_version_var_ref,
     resolve_dest_schema_suffix,
     resolve_num_of_tables_in_pipeline,
+    resolve_recon_cluster_tier,
     resolve_uc_catalog,
     uc_catalog_var_ref,
 )
@@ -20,7 +21,6 @@ from util.config_loader import (
 )
 from util.pipeline_generator import (
     chunk_tables,
-    generate_client_pipelines_yaml,
     generate_client_pipelines_yaml,
 )
 from util.pipeline_registry import write_pipeline_name_registry
@@ -37,8 +37,8 @@ from util.sql_generator import (
 UC_REF = uc_catalog_var_ref()
 PIPELINE_TAG_REF = pipeline_tag_var_ref()
 RETRY_REF = pipeline_max_update_retry_attempts_var_ref()
-POOL_REF = pipeline_instance_pool_id_ref()
 SPARK_REF = pipeline_spark_version_var_ref()
+NUM_WORKERS_REF = pipeline_cluster_num_workers_var_ref()
 
 
 def _active_clients():
@@ -104,21 +104,16 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "development: false" in yaml_text
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
-    assert f"instance_pool_id: {POOL_REF}" in yaml_text
-    assert "node_type_id:" not in yaml_text
+    assert "node_type_id: Standard_D32s_v3" in yaml_text
+    assert "instance_pool_id:" not in yaml_text
     assert f"spark_version: {SPARK_REF}" in yaml_text
-    cluster_cfg = load_cluster_config()
-    tier = cluster_cfg.tiers[expected_job_tier_for_size(client.client_size)]
-    assert "num_workers: ${var.pipeline_cluster_num_workers}" in yaml_text
-    assert "spark.master: ${var.cluster_spark_master}" in yaml_text
-    assert "driver_instance_pool_id:" in yaml_text
-    assert "data_security_mode: ${var.cluster_data_security_mode}" in yaml_text
-    assert "single_user_name: ${var.dedicated_compute_principal}" in yaml_text
+    assert f"num_workers: {NUM_WORKERS_REF}" in yaml_text
+    assert "spark.master: local[32]" in yaml_text
     assert "ResourceClass: SingleNode" in yaml_text
     assert "autoscale:" not in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text
-    assert "resources.instance_pools.ipac_ingest_pool" in yaml_text
+    assert "instance_pools" not in yaml_text
     assert "event_log:" not in yaml_text
     for table in tables:
         assert f"destination_table: '{table.table_nm}'" in yaml_text
@@ -129,7 +124,9 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
 
 def test_generate_yaml_uses_j3_for_large_client():
     catalog = load_common_tables()
-    client = get_client("iPC_2025_Dev7_15350").model_copy(update={"client_size": "large", "cluster_tier": "j3"})
+    client = get_client("iPC_2025_Dev7_15350").model_copy(
+        update={"client_size": "large", "cluster_tier": "j3"}
+    )
     cluster_cfg = load_cluster_config()
     tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
     yaml_text = generate_client_pipelines_yaml(
@@ -140,8 +137,26 @@ def test_generate_yaml_uses_j3_for_large_client():
         num_of_tables_in_pipeline=1,
         dest_schema_suffix="poc_1",
     )
-    assert "num_workers: ${var.pipeline_cluster_num_workers}" in yaml_text
+    assert "node_type_id: Standard_D64s_v3" in yaml_text
+    assert "spark.master: local[64]" in yaml_text
     assert "autoscale:" not in yaml_text
+
+
+def test_generate_yaml_uses_j1_for_small_client():
+    client = get_client("iPC_2025_Dev7_15350").model_copy(
+        update={"client_size": "small", "cluster_tier": "j1"}
+    )
+    catalog = load_common_tables()
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    yaml_text = generate_client_pipelines_yaml(
+        client,
+        tables[:1],
+        uc_catalog_ref=UC_REF,
+        num_of_tables_in_pipeline=1,
+        dest_schema_suffix="poc_1",
+    )
+    assert "node_type_id: Standard_D16s_v3" in yaml_text
+    assert "spark.master: local[16]" in yaml_text
 
 
 def test_generate_yaml_uses_suffix_when_provided():
@@ -307,3 +322,4 @@ def test_write_ipac_metadata_schema_resource_yaml(tmp_path):
     assert "name: ${var.ipac_metadata_schema}" in text
     assert "catalog_name: ${var.uc_catalog}" in text
     assert path.endswith("ipac_metadata_schema.yml")
+

@@ -12,12 +12,12 @@ from util.bundle_config import (
     resolve_dest_schema_suffix,
     resolve_ipac_metadata_schema,
     resolve_num_of_tables_in_pipeline,
+    resolve_recon_cluster_tier,
     resolve_uc_catalog,
-    resolve_uc_lkf_staging_schema,
     pipeline_tag_var_ref,
     uc_catalog_var_ref,
-    uc_lkf_staging_schema_var_ref,
 )
+from util.cluster_generator import write_recon_cluster_resource_yaml
 from util.config_loader import (
     format_validation_error,
     get_client,
@@ -33,6 +33,7 @@ from util.paths import (
     client_sql_dir,
     generated_bundle_dir,
     generated_config_dir,
+    generated_config_clusters_dir,
     generated_config_schema_dir,
     generated_schema_dir,
 )
@@ -172,18 +173,18 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         override=getattr(args, "dest_schema_suffix", None),
         target=getattr(args, "target", None),
     )
-    uc_lkf_staging_schema_ref = uc_lkf_staging_schema_var_ref()
-    resolved_uc_lkf_staging_schema = resolve_uc_lkf_staging_schema(
-        override=getattr(args, "uc_lkf_staging_schema", None),
+    pipeline_tag_ref = pipeline_tag_var_ref()
+    recon_cluster_tier = resolve_recon_cluster_tier(
+        override=getattr(args, "recon_cluster_tier", None),
         target=getattr(args, "target", None),
     )
-    pipeline_tag_ref = pipeline_tag_var_ref()
     metadata_schema = resolve_ipac_metadata_schema(
         override=getattr(args, "ipac_metadata_schema", None),
         target=getattr(args, "target", None),
     )
     schema_dir = generated_schema_dir()
     config_schema_dir = generated_config_schema_dir()
+    config_clusters_dir = generated_config_clusters_dir()
     config_dir = generated_config_dir()
     generated_pipeline_names: list[str] = []
     errors = 0
@@ -194,6 +195,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             uc_catalog_ref=uc_catalog_ref,
         )
         print(f"Generated {ipac_metadata_schema_path}", flush=True)
+        recon_cluster_path = write_recon_cluster_resource_yaml(
+            cluster_cfg,
+            recon_cluster_tier,
+            config_clusters_dir,
+        )
+        print(f"Generated {recon_cluster_path}", flush=True)
 
     for client in clients:
         try:
@@ -211,8 +218,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         resolved_uc_catalog=resolved_uc_catalog,
                         num_of_tables_in_pipeline=num_tables,
                         dest_schema_suffix=dest_schema_suffix,
-                        uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
-                        resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                         pipeline_tag_ref=pipeline_tag_ref,
                     )
                 )
@@ -236,8 +241,6 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 resolved_uc_catalog=resolved_uc_catalog,
                 num_of_tables_in_pipeline=num_tables,
                 dest_schema_suffix=dest_schema_suffix,
-                uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
-                resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
                 pipeline_tag_ref=pipeline_tag_ref,
                 metadata_schema=metadata_schema,
             )
@@ -348,8 +351,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override destination schema suffix (default from databricks.yml var.dest_schema_suffix)",
     )
     generate_p.add_argument(
-        "--uc-lkf-staging-schema",
-        help="Override pipeline schema literal for YAML comments (bundle uses ${var.uc_lkf_staging_schema})",
+        "--recon-cluster-tier",
+        help="Override recon cluster tier j1/j2/j3 (default from databricks.yml var.recon_cluster_tier)",
     )
     generate_p.add_argument(
         "--pipeline-tag",

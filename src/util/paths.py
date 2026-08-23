@@ -68,3 +68,8 @@ def generated_config_dir() -> Path:
 def generated_config_schema_dir() -> Path:
     """Bundle UC schema resources generated per client (deployed before pipelines)."""
     return generated_config_dir() / "schema"
+
+
+def generated_config_clusters_dir() -> Path:
+    """Bundle cluster resources generated from cluster_config.json tiers."""
+    return generated_config_dir() / "clusters"

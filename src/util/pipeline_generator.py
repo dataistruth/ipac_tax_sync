@@ -2,44 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-# #region agent log
-_AGENT_DEBUG_LOG = Path("/Users/mukesh.singh/spark/deloitte/.cursor/debug-588d1c.log")
-
-
-def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    try:
-        entry = {
-            "sessionId": "588d1c",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _AGENT_DEBUG_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
-    except Exception:
-        pass
-# #endregion
-
 from util.bundle_config import (
-    PIPELINE_INSTANCE_POOL_ID_REF,
     PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
     PIPELINE_TAG_VAR_REF,
     UC_CATALOG_VAR_REF,
-    UC_LKF_STAGING_SCHEMA_VAR_REF,
 )
 from util.cluster_tiers import expected_job_tier_for_size, format_pipeline_cluster_lines
 from util.schema_generator import schema_resource_key, schema_resource_name_ref
 
 if TYPE_CHECKING:
-    from util.models import ClientEntry, ClusterConfig, ClusterTier, EffectiveTable
+    from util.models import ClientEntry, ClusterConfig, EffectiveTable
 
 
 def pipeline_resource_key(client_nm: str, serial: int) -> str:
@@ -59,7 +34,7 @@ def _parse_lq_key(raw: str | None) -> list[str]:
     return [c.strip() for c in str(raw).split(",") if c.strip()]
 
 
-def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None) -> ClusterTier | None:
+def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None):
     if cluster_config is None:
         from util.config_loader import load_cluster_config
 
@@ -69,7 +44,6 @@ def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None) 
 
 
 def _yaml_scd_type(scd_type: int) -> str:
-    """Lakeflow ingestion table_configuration scd enum (not numeric 1/2)."""
     if scd_type == 2:
         return "SCD_TYPE_2"
     return "SCD_TYPE_1"
@@ -114,12 +88,10 @@ def _pipeline_resource_lines(
     serial: int,
     cluster_config: ClusterConfig | None,
     uc_catalog_ref: str,
-    uc_lkf_staging_schema_ref: str,
     pipeline_tag_ref: str,
     dest_schema_suffix: str,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
-    instance_pool_ref: str = PIPELINE_INSTANCE_POOL_ID_REF,
 ) -> list[str]:
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
@@ -137,7 +109,6 @@ def _pipeline_resource_lines(
         "      depends_on:",
         f"        - {meta_dep}",
         f"        - {client_raw_dep}",
-        "        - resources.instance_pools.ipac_ingest_pool",
         "      pipeline_type: MANAGED_INGESTION",
         "      permissions:",
         "        - level: CAN_MANAGE",
@@ -155,24 +126,18 @@ def _pipeline_resource_lines(
     ]
 
     if tier:
-        lines.extend(
-            format_pipeline_cluster_lines(
-                tier,
-                PIPELINE_SPARK_VERSION_VAR_REF,
-                instance_pool_ref=instance_pool_ref,
-            )
-        )
+        lines.extend(format_pipeline_cluster_lines(tier))
     else:
-        lines.append(f"      # cluster tier {job_tier_key}: cluster_config.json missing — add clusters block")
+        lines.append(f"      # cluster tier {job_tier_key}: missing in cluster_config.json")
 
     lines.extend(
         [
-        "      ingestion_definition:",
-        f"        connection_name: {client.uc_conn_nm}",
-        "        connector_type: CDC",
-        "        table_configuration:",
-        "          enable_auto_clustering: true",
-        "        objects:",
+            "      ingestion_definition:",
+            f"        connection_name: {client.uc_conn_nm}",
+            "        connector_type: CDC",
+            "        table_configuration:",
+            "          enable_auto_clustering: true",
+            "        objects:",
         ]
     )
 
@@ -190,50 +155,25 @@ def generate_client_pipelines_yaml(
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
     dest_schema_suffix: str = "",
-    uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
-    resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
-    instance_pool_ref: str = PIPELINE_INSTANCE_POOL_ID_REF,
 ) -> str:
-    """Generate bundle YAML with one or more pipelines split by num_of_tables_in_pipeline."""
     if not tables:
         raise ValueError(f"No tables to generate for {client.client_nm}")
 
     batches = chunk_tables(tables, num_of_tables_in_pipeline)
     raw_schema = client.raw_schema(dest_schema_suffix)
     tier = _tier_for_client(client, cluster_config)
-    # #region agent log
-    _agent_debug_log(
-        "H1",
-        "pipeline_generator.py:generate_client_pipelines_yaml",
-        "pipeline workload snapshot",
-        {
-            "client_nm": client.client_nm,
-            "client_size": client.client_size,
-            "total_tables": len(tables),
-            "num_of_tables_in_pipeline": num_of_tables_in_pipeline,
-            "pipeline_count": len(batches),
-            "tables_per_pipeline": [len(b) for b in batches],
-            "tier_label": tier.label if tier else None,
-            "min_workers": tier.min_workers if tier else None,
-            "max_workers": tier.max_workers if tier else None,
-            "driver_node_type_id": tier.driver_node_type_id if tier else None,
-        },
-    )
-    # #endregion
     catalog_comment = resolved_uc_catalog or uc_catalog_ref
-
     lkf_schema_comment = client.raw_schema(dest_schema_suffix)
 
     tier_note = ""
     if tier:
         job_tier_key = expected_job_tier_for_size(client.client_size)
         tier_note = (
-            f"# client_size: {client.client_size} → job tier {job_tier_key} ({tier.label}) — "
-            f"{tier.description}; dedicated SINGLE_USER D64 node per pipeline; "
-            f"VMs from dedicated instance pool {instance_pool_ref}"
+            f"# client_size: {client.client_size} → {job_tier_key} "
+            f"({tier.node_type_id} single-node per pipeline)"
         )
 
     batch_summary = ", ".join(str(len(b)) for b in batches)
@@ -241,12 +181,10 @@ def generate_client_pipelines_yaml(
     lines = [
         f"# Generated by ipac_delta_sync for client: {client.client_nm}",
         f"# {client.desc}",
-        f"# uc_catalog: {catalog_comment} (from databricks.yml var.uc_catalog)",
-        f"# pipeline schema: {lkf_schema_comment} (resources.schemas.{schema_resource_key(lkf_schema_comment)})",
-        f"# table destination_schema: {catalog_comment}.{raw_schema} "
-        f"(resources.schemas.{client_schema_key})",
-        f"# num_of_tables_in_pipeline: {num_of_tables_in_pipeline} "
-        f"(databricks.yml var.num_of_tables_in_pipeline)",
+        f"# uc_catalog: {catalog_comment}",
+        f"# pipeline schema: {lkf_schema_comment}",
+        f"# destination_schema: {catalog_comment}.{raw_schema}",
+        f"# num_of_tables_in_pipeline: {num_of_tables_in_pipeline}",
         tier_note,
         f"# tables: {len(tables)} across {len(batches)} pipeline(s) [{batch_summary}]",
         f"# Regenerate: ipac-delta-sync generate --client {client.client_nm}",
@@ -262,12 +200,10 @@ def generate_client_pipelines_yaml(
                 serial,
                 cluster_config,
                 uc_catalog_ref,
-                uc_lkf_staging_schema_ref,
                 pipeline_tag_ref,
                 dest_schema_suffix,
                 pipeline_max_update_retry_attempts_ref,
                 metadata_schema,
-                instance_pool_ref,
             )
         )
 
@@ -283,12 +219,9 @@ def write_bundle_pipeline_yaml(
     resolved_uc_catalog: str | None = None,
     num_of_tables_in_pipeline: int = 5,
     dest_schema_suffix: str = "",
-    uc_lkf_staging_schema_ref: str = UC_LKF_STAGING_SCHEMA_VAR_REF,
-    resolved_uc_lkf_staging_schema: str | None = None,
     pipeline_tag_ref: str = PIPELINE_TAG_VAR_REF,
     pipeline_max_update_retry_attempts_ref: str = PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF,
     metadata_schema: str = "ipac_metadata",
-    instance_pool_ref: str = PIPELINE_INSTANCE_POOL_ID_REF,
 ) -> str:
     from pathlib import Path
 
@@ -301,12 +234,9 @@ def write_bundle_pipeline_yaml(
         resolved_uc_catalog=resolved_uc_catalog,
         num_of_tables_in_pipeline=num_of_tables_in_pipeline,
         dest_schema_suffix=dest_schema_suffix,
-        uc_lkf_staging_schema_ref=uc_lkf_staging_schema_ref,
-        resolved_uc_lkf_staging_schema=resolved_uc_lkf_staging_schema,
         pipeline_tag_ref=pipeline_tag_ref,
         pipeline_max_update_retry_attempts_ref=pipeline_max_update_retry_attempts_ref,
         metadata_schema=metadata_schema,
-        instance_pool_ref=instance_pool_ref,
     )
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(content, encoding="utf-8")

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from util.bundle_config import (
+    PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
+    PIPELINE_SPARK_VERSION_VAR_REF,
+)
 from util.models import ClientSize, ClusterTierName
 
 if TYPE_CHECKING:
@@ -21,6 +25,9 @@ CLIENT_SIZE_TO_SERVERLESS_TIER: dict[ClientSize, ClusterTierName] = {
     "large": "s3",
 }
 
+JOB_TIER_KEYS: tuple[ClusterTierName, ...] = ("j1", "j2", "j3")
+SERVERLESS_TIER_KEYS: tuple[ClusterTierName, ...] = ("s1", "s2", "s3")
+
 
 def expected_job_tier_for_size(client_size: ClientSize) -> ClusterTierName:
     return CLIENT_SIZE_TO_JOB_TIER[client_size]
@@ -31,49 +38,43 @@ def expected_serverless_tier_for_size(client_size: ClientSize) -> ClusterTierNam
 
 
 def resolve_job_tier_for_client(client: ClientEntry) -> ClusterTierName:
-    """Job cluster tier for Lakeflow Connect: small→j1, medium→j2, large→j3."""
     return expected_job_tier_for_size(client.client_size)
 
 
-def format_pipeline_cluster_lines(
+def format_job_cluster_spec_lines(
     tier: ClusterTier,
-    spark_version_ref: str,
     *,
-    instance_pool_ref: str | None = None,
-    node_type_ref: str | None = None,
-    num_workers_ref: str = "${var.pipeline_cluster_num_workers}",
-    cluster_spark_master_ref: str = "${var.cluster_spark_master}",
-    data_security_mode_ref: str = "${var.cluster_data_security_mode}",
-    dedicated_principal_ref: str = "${var.dedicated_compute_principal}",
+    spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
+    num_workers_ref: str = PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
+    indent: str = "          ",
 ) -> list[str]:
-    """YAML lines for classic (non-serverless) pipeline cluster block."""
-    lines = [
-        "      clusters:",
-        "        - label: default",
+    """Single-node cluster fields from a job tier (j1/j2/j3) in cluster_config.json."""
+    if tier.serverless:
+        raise ValueError(f"tier {tier.label} is serverless; use job tiers j1–j3 for clusters")
+    if not tier.node_type_id or tier.local_cores <= 0:
+        raise ValueError(
+            f"tier {tier.label} needs node_type_id and local_cores in cluster_config.json"
+        )
+
+    prefix = indent
+    conf_indent = indent + "  "
+    return [
+        f"{prefix}node_type_id: {tier.node_type_id}",
+        f"{prefix}spark_version: {spark_version_ref}",
+        f"{prefix}num_workers: {num_workers_ref}",
+        f"{prefix}spark_conf:",
+        f"{conf_indent}spark.databricks.cluster.profile: singleNode",
+        f"{conf_indent}spark.master: local[{tier.local_cores}]",
+        f"{prefix}custom_tags:",
+        f"{conf_indent}ResourceClass: SingleNode",
     ]
 
-    if instance_pool_ref:
-        lines.append(f"          instance_pool_id: {instance_pool_ref}")
-        lines.append(f"          driver_instance_pool_id: {instance_pool_ref}")
-    elif node_type_ref:
-        lines.append(f"          node_type_id: {node_type_ref}")
-        if tier.driver_node_type_id:
-            lines.append(f"          driver_node_type_id: {tier.driver_node_type_id}")
-    else:
-        raise ValueError("format_pipeline_cluster_lines requires instance_pool_ref or node_type_ref")
 
+def format_pipeline_cluster_lines(tier: ClusterTier) -> list[str]:
+    """Pipeline cluster block: tier from client_size → j1/j2/j3."""
+    lines = ["      clusters:", "        - label: default"]
     lines.extend(
-        [
-            f"          spark_version: {spark_version_ref}",
-            f"          num_workers: {num_workers_ref}",
-            "          spark_conf:",
-            "            spark.databricks.cluster.profile: singleNode",
-            f"            spark.master: {cluster_spark_master_ref}",
-            "          custom_tags:",
-            "            ResourceClass: SingleNode",
-            f"          data_security_mode: {data_security_mode_ref}",
-            f"          single_user_name: {dedicated_principal_ref}",
-        ]
+        format_job_cluster_spec_lines(tier, indent="          ")
     )
     if tier.policy_id:
         lines.append(f"          policy_id: {tier.policy_id}")

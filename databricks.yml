@@ -1,22 +1,13 @@
 # =============================================================================
-# ipac_delta_sync — JSON-config-driven Lakeflow Connect scaffolding
+# ipac_delta_sync — Lakeflow Connect scaffolding
 #
-# Workflow:
-#   1. Edit config/common/client.json, common_tables.json, client_overrides/
-#   2. Set uc_catalog below (common for all clients / targets)
-#   3. ./ipac-delta-sync validate
-#   4. ./ipac-delta-sync generate
-#   5. First deploy: databricks bundle validate && databricks bundle deploy
-#      (order: generated/config/schema → instance pool → sql/recon cluster → pipelines → jobs)
-#   6. Later: databricks bundle deploy --select pipelines.p_<client_nm>_1,...
-#
-# Calc jobs deploy from ipac-sdt-calc (jobs.*) — see docs/migration-from-ipac-core-sdt.md
+# Compute: each pipeline + recon use fixed single-node clusters from
+# config/common/cluster_config.json (j1=D16, j2=D32, j3=D64). No pools/autoscale.
 # =============================================================================
 bundle:
   name: ipac-delta-sync
   engine: direct
 
-# Shared UC schemas (ipac_metadata, client raw) use stable names — no [dev user] prefix.
 experimental:
   skip_name_prefix_for_schema: true
 
@@ -27,106 +18,49 @@ sync:
     - generated/config/**
 
 include:
-  # Deploy order: UC schemas → instance pool → clusters → pipelines → ops jobs
   - generated/config/schema/*.yml
-  - resources/instance_pools/*.yml
-  - resources/clusters/*.yml
+  - generated/config/clusters/*.yml
   - generated/bundle/*.yml
   - resources/jobs/*.yml
 
 variables:
   uc_catalog:
     default: dev7
-    description: Common UC catalog for all clients
   dest_schema_suffix:
     default: "_poc_1"
-    description: Suffix appended to client_nm for raw schema ({client_nm}{suffix}, e.g. _poc_1)
-  uc_lkf_staging_schema:
-    default: ""
-    description: Pipeline-level Lakeflow staging schema (${var.uc_lkf_staging_schema}); table destination_schema remains per-client
   ipac_metadata_schema:
     default: ipac_metadata
-    description: Metadata schema for process logs and heartbeat status tables
   grant_group:
     default: ipacs_dev_team
-    description: Databricks group granted manage/view access on generated pipelines and jobs
   heartbeat_interval_sec:
     default: 900
-    description: Poll interval (seconds) for heartbeat monitor job and max allowed heartbeat age for continuous pipelines
   recon_poll_interval_sec:
     default: 300
-    description: Poll interval (seconds) for ingestion flow metrics reconciliation job
-  recon_lookback_hours:
-    default: 24
-    description: Hours of ingestion event log history to scan each recon poll
   heartbeat_job_alert_mail:
     default: mukessingh@deloitte.com
-    description: Email recipient for heartbeat monitor/restart job failures
   num_of_tables_in_pipeline:
     default: 10
-    description: Max tables per generated Lakeflow pipeline (split into p_<client_nm>_1, _2, ...). Keep low (5–20) to avoid driver GC pressure on continuous ingest.
   pipeline_tag:
     default: ipac_delta_sync
-    description: Tag value applied to all generated Lakeflow pipelines (tags.bundle)
   job_tag:
     default: ipac_delta_sync
-    description: Tag value applied to bundle jobs (tags.bundle)
   pipeline_max_update_retry_attempts:
     default: 2
-    description: Max update retries after failure for continuous Lakeflow pipelines (pipelines.numUpdateRetryAttempts)
-  pipeline_cluster_node_type:
-    default: Standard_DS3_v2
-    description: Deprecated fallback when instance pool is disabled (prefer pipeline_instance_pool_node_type)
-  cluster_data_security_mode:
-    default: SINGLE_USER
-    description: Dedicated compute access mode (SINGLE_USER); legacy alias for DATA_SECURITY_MODE_DEDICATED
-  dedicated_compute_principal:
-    default: ipacs_dev_team
-    description: User email or group name assigned to dedicated compute (group = dedicated group access)
-  pipeline_instance_pool_node_type:
-    default: Standard_D64s_v3
-    description: Azure D-series node type for dedicated ingest/recon instance pools (64 vCPU)
-  pipeline_instance_pool_min_idle:
-    default: 4
-    description: Minimum idle VMs kept warm in the ingest dedicated instance pool
-  pipeline_instance_pool_max_capacity:
-    default: 16
-    description: Maximum outstanding VMs in the ingest pool (one D64 per pipeline cluster)
-  sql_recon_instance_pool_min_idle:
-    default: 1
-    description: Minimum idle VMs in the recon dedicated instance pool
-  sql_recon_instance_pool_max_capacity:
-    default: 2
-    description: Maximum outstanding VMs in the recon pool (dedicated recon cluster)
-  pipeline_cluster_num_workers:
-    default: 0
-    description: Pipeline cluster workers (0 = single-node D64 per pipeline)
-  cluster_spark_master:
-    default: local[64]
-    description: spark.master for single-node pipeline and recon clusters on D64
   pipeline_spark_version:
     default: 15.4.x-scala2.12
-    description: Spark runtime for generated Lakeflow pipeline clusters and pool preload
-  sql_recon_node_type_id:
-    default: Standard_D64s_v3
-    description: Deprecated fallback when recon pool disabled (prefer instance pool)
-  sql_recon_spark_version:
-    default: 15.4.x-scala2.12
-    description: Spark runtime for dedicated SQL Server recon cluster
+  pipeline_cluster_num_workers:
+    default: 0
+  recon_cluster_tier:
+    default: j3
   sql_recon_autotermination_minutes:
     default: 0
-    description: Auto-termination for ipac_sql_recon_dedicated (0 = disabled for continuous recon job)
 
 targets:
-  # Deploy with: databricks bundle deploy -t dev
-  # Target "dev" = your environment (catalog dev7). It is NOT bundle development mode.
-  # mode: production on this target means:
-  #   - no [dev username] prefix on pipeline/job/pool names
-  #   - no "dev" custom tag on pools (required for instance_pool_id)
-  # pipelines_development: false + generated YAML development: false
   dev:
     default: true
     mode: production
+    workspace:
+      root_path: /Workspace/Shared/ipac_delta_sync/dev
     presets:
       pipelines_development: false
     variables:
@@ -136,23 +70,13 @@ targets:
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
       recon_poll_interval_sec: 300
-      recon_lookback_hours: 24
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
       num_of_tables_in_pipeline: 10
-      pipeline_instance_pool_node_type: Standard_D64s_v3
-      pipeline_instance_pool_min_idle: 4
-      pipeline_instance_pool_max_capacity: 16
-      sql_recon_instance_pool_min_idle: 1
-      sql_recon_instance_pool_max_capacity: 2
+      recon_cluster_tier: j3
       pipeline_cluster_num_workers: 0
-      cluster_spark_master: local[64]
-      cluster_data_security_mode: SINGLE_USER
-      dedicated_compute_principal: ipacs_dev_team
-      sql_recon_node_type_id: Standard_D64s_v3
-      sql_recon_spark_version: 15.4.x-scala2.12
       sql_recon_autotermination_minutes: 0
 
   prod:
@@ -166,21 +90,10 @@ targets:
       grant_group: ipacs_dev_team
       heartbeat_interval_sec: 900
       recon_poll_interval_sec: 300
-      recon_lookback_hours: 24
       heartbeat_job_alert_mail: mukessingh@deloitte.com
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
-      pipeline_instance_pool_node_type: Standard_D64s_v3
-      pipeline_instance_pool_min_idle: 4
-      pipeline_instance_pool_max_capacity: 16
-      sql_recon_instance_pool_min_idle: 1
-      sql_recon_instance_pool_max_capacity: 2
+      recon_cluster_tier: j3
       pipeline_cluster_num_workers: 0
-      cluster_spark_master: local[64]
-      cluster_data_security_mode: SINGLE_USER
-      dedicated_compute_principal: ipacs_dev_team
-      sql_recon_node_type_id: Standard_D64s_v3
-      sql_recon_spark_version: 15.4.x-scala2.12
       sql_recon_autotermination_minutes: 0
-

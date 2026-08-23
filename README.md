@@ -33,34 +33,31 @@ config/common/
 
 Six named profiles in `config/common/cluster_config.json`:
 
-| Tier | Type | Workers (autoscale) | Used for |
-|------|------|---------------------|----------|
-| `s1` | Serverless small | 1–2 | Reserved (not Lakeflow Connect CDC) |
-| `s2` | Serverless medium | 2–4 | Reserved (not Lakeflow Connect CDC) |
-| `s3` | Serverless large | 4–8 | Reserved (not Lakeflow Connect CDC) |
-| `j1` | Job cluster small | 1–2 | `client_size: small` |
-| `j2` | Job cluster medium | 2–4 | `client_size: medium` |
-| `j3` | Job cluster large | 4–8 | `client_size: large` |
+| Tier | Type | Single-node VM | Used for |
+|------|------|----------------|----------|
+| `s1` | Serverless small | — | Reserved (not Lakeflow Connect CDC) |
+| `s2` | Serverless medium | — | Reserved (not Lakeflow Connect CDC) |
+| `s3` | Serverless large | — | Reserved (not Lakeflow Connect CDC) |
+| `j1` | Job cluster small | D16 (`Standard_D16s_v3`) | `client_size: small` |
+| `j2` | Job cluster medium | D32 (`Standard_D32s_v3`) | `client_size: medium` |
+| `j3` | Job cluster large | D64 (`Standard_D64s_v3`) | `client_size: large` |
 
-Lakeflow Connect CDC pipelines use **classic dedicated compute** with a **dedicated instance pool** (`resources/instance_pools/ipac_ingest_pool.yml`). Generated YAML sets `serverless: false`, `data_security_mode: SINGLE_USER`, and attaches each pipeline cluster to the pool (driver + worker pool IDs):
+Each Lakeflow Connect pipeline gets its own **fixed single-node job cluster** (no shared ingest pool):
 
 ```yaml
 clusters:
   - label: default
-    instance_pool_id: ${resources.instance_pools.ipac_ingest_pool.id}
-    driver_instance_pool_id: ${resources.instance_pools.ipac_ingest_pool.id}
+    node_type_id: Standard_D64s_v3   # j3 / large
     spark_version: ${var.pipeline_spark_version}
-    data_security_mode: SINGLE_USER
-    single_user_name: ${var.dedicated_compute_principal}
     num_workers: 0
     spark_conf:
       spark.databricks.cluster.profile: singleNode
       spark.master: local[64]
 ```
 
-Pool defaults in `databricks.yml`: `Standard_D64s_v3` (64 vCPU), on-demand Azure VMs, `min_idle_instances: 4`, `max_capacity: 16`.
+Recon uses the same **j3 single-node** profile as large pipelines: `Standard_D64s_v3`, `num_workers: 0`, `spark.master: local[64]` on `ipac_sql_recon_shared`.
 
-Set Spark version in `variables.pipeline_spark_version`. Classic compute and instance pools require the bundle **direct deployment engine** (`bundle.engine: direct` in `databricks.yml`).
+Set Spark version in `variables.pipeline_spark_version`. Classic compute requires `bundle.engine: direct`.
 
 > `cluster_tier` in `client.json` must agree with `client_size` (validate fails if e.g. `small` + `j2`).
 
@@ -181,13 +178,13 @@ $env:PYTHONPATH = "C:\path\to\ipac_delta_sync\src"
 
 - `generated/config/schema/ipac_metadata_schema.yml` — shared metadata schema (bundle deploy; uses `${var.uc_catalog}` + `${var.ipac_metadata_schema}`)
 - `generated/config/schema/<client_nm>_schema.yml` — per-client raw + Lakeflow staging schema (bundle deploy)
-- `resources/instance_pools/ipac_ingest_pool.yml` — dedicated D64 ingest + recon instance pools (single bundle file)
-- `generated/bundle/<client_nm>_pipeline.yml` — pipelines (`depends_on` metadata schema, client schema, instance pool)
+- `resources/clusters/ipac_sql_recon_cluster.yml` — fixed D64 recon cluster
+- `generated/bundle/<client_nm>_pipeline.yml` — pipelines (`depends_on` metadata + client schema only)
 
 **Bundle deploy order** (`databricks.yml` include + pipeline `depends_on`):
 
 1. `generated/config/schema/*.yml`
-2. `resources/instance_pools/ipac_ingest_pool.yml` (ingest + recon pools — single file)
+2. `resources/clusters/*.yml`
 3. `generated/bundle/*.yml`
 4. `resources/jobs/*.yml`
 - `generated/schema/ipac_metadata_process_log.sql` — Delta `process_log` DDL
@@ -220,14 +217,13 @@ Heartbeat monitor writes `process_type=ingest` rows each poll. Calc / transfer j
 - `src/<client_nm>/sql/<client_nm>_grant_ct_access.sql` — CT grants for PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
 - `src/<client_nm>/sql/<client_nm>_grant_cdc_access.sql` — CDC grants for non-PK tables (`<KEEP_USER_ID>` placeholder; creates DB user from server login if needed)
 
-Deploy:
-
 ```bash
 ./ipac-delta-sync generate
+databricks bundle validate -t dev
 databricks bundle deploy -t dev
 ```
 
-Start each continuous pipeline from the Databricks UI or `databricks pipelines start` after deploy. All pipeline clusters use the dedicated ingest instance pool (`ipac_ingest_pool`).
+Start each continuous pipeline from the Databricks UI or `databricks pipelines start` after deploy. Each pipeline provisions its own fixed job cluster (D16/D32/D64 by `client_size`).
 
 ### Heartbeat + restart jobs
 
@@ -243,7 +239,7 @@ Monitor polls `GET /api/2.0/pipelines/{id}` for each configured pipeline and log
 
 ### Ingestion flow metrics reconciliation
 
-Job `j_ipac_delta_sync_ingestion_recon_monitor` runs on **`ipac_sql_recon_dedicated`** (64 vCPU single-node, SINGLE_USER). The notebook installs **`mssql-python`** via `%pip`.
+Job `j_ipac_delta_sync_ingestion_recon_monitor` runs on **`ipac_sql_recon_shared`** (j3 / D64 single-node, same as large pipelines).
 
 Continuous loop in `run_ingestion_recon.py`: poll ingestion event log → read CT watermarks from SQL Server (`ipac_metadata.dbo`) → run CT counts for `recon_type` 2/3 → write `recon_ready` + `process_log`.
 
@@ -255,7 +251,7 @@ Test SQL connectivity first: `src/common/notebooks/test_mssql_python.py`
 
 Poll interval: `variables.recon_poll_interval_sec` (default 300s). Lookback: `variables.recon_lookback_hours`.
 
-Attach ad-hoc SQL/CT probe notebooks to the same cluster in the UI (Compute → `ipac_sql_recon_dedicated`).
+Attach ad-hoc SQL/CT probe notebooks to the same cluster in the UI (Compute → `ipac_sql_recon_shared`).
 
 Notebook: `src/common/notebooks/run_ingestion_recon.py`. Logic: `src/common/ops/lakeflow_event_ops.py`, `ingestion_recon_ops.py`, `source_ct_ops.py`, `source_ct_direct.py`, `recon_store.py`, `sql_server_audit_store.py`.
 

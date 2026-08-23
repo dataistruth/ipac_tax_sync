@@ -6,19 +6,19 @@ from pathlib import Path
 
 import yaml
 
+from util.models import ClusterTierName
 from util.paths import project_root
 
 UC_CATALOG_VAR_REF = "${var.uc_catalog}"
-UC_LKF_STAGING_SCHEMA_VAR_REF = "${var.uc_lkf_staging_schema}"
 IPAC_METADATA_SCHEMA_VAR_REF = "${var.ipac_metadata_schema}"
-METADATA_SCHEMA_CATALOG_REF = "${resources.schemas.schema_ipac_metadata.catalog_name}"
-METADATA_SCHEMA_NAME_REF = "${resources.schemas.schema_ipac_metadata.name}"
 PIPELINE_TAG_VAR_REF = "${var.pipeline_tag}"
 JOB_TAG_VAR_REF = "${var.job_tag}"
 PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF = "${var.pipeline_max_update_retry_attempts}"
-PIPELINE_CLUSTER_NODE_TYPE_VAR_REF = "${var.pipeline_cluster_node_type}"
-PIPELINE_INSTANCE_POOL_ID_REF = "${resources.instance_pools.ipac_ingest_pool.id}"
 PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
+PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF = "${var.pipeline_cluster_num_workers}"
+SQL_RECON_AUTOTERMINATION_MINUTES_VAR_REF = "${var.sql_recon_autotermination_minutes}"
+
+
 def databricks_yml_path() -> Path:
     return project_root() / "databricks.yml"
 
@@ -66,7 +66,6 @@ def resolve_uc_catalog(
     target: str | None = None,
     databricks_yml: Path | None = None,
 ) -> str:
-    """Resolve literal UC catalog from CLI override, target, or variable default."""
     value = _resolve_variable(
         "uc_catalog",
         "main",
@@ -84,7 +83,6 @@ def resolve_num_of_tables_in_pipeline(
     target: str | None = None,
     databricks_yml: Path | None = None,
 ) -> int:
-    """Max tables per generated pipeline (from databricks.yml var.num_of_tables_in_pipeline)."""
     value = _resolve_variable(
         "num_of_tables_in_pipeline",
         5,
@@ -98,35 +96,11 @@ def resolve_num_of_tables_in_pipeline(
     return batch_size
 
 
-def resolve_uc_lkf_staging_schema(
-    override: str | None = None,
-    target: str | None = None,
-    databricks_yml: Path | None = None,
-) -> str:
-    """Resolve Lakeflow pipeline-level staging schema from bundle variable."""
-    value = _resolve_variable(
-        "uc_lkf_staging_schema",
-        "",
-        override=override,
-        target=target,
-        databricks_yml=databricks_yml,
-    )
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
-def uc_lkf_staging_schema_var_ref() -> str:
-    """Bundle variable reference for pipeline-level schema (Lakeflow staging)."""
-    return UC_LKF_STAGING_SCHEMA_VAR_REF
-
-
 def resolve_dest_schema_suffix(
     override: str | None = None,
     target: str | None = None,
     databricks_yml: Path | None = None,
 ) -> str:
-    """Resolve optional destination schema suffix (e.g., '_raw')."""
     value = _resolve_variable(
         "dest_schema_suffix",
         "",
@@ -144,7 +118,6 @@ def resolve_ipac_metadata_schema(
     target: str | None = None,
     databricks_yml: Path | None = None,
 ) -> str:
-    """Resolve metadata schema used for process logs/operational tables."""
     value = _resolve_variable(
         "ipac_metadata_schema",
         "ipac_metadata",
@@ -161,8 +134,25 @@ def resolve_ipac_metadata_schema(
     return resolved
 
 
+def resolve_recon_cluster_tier(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> ClusterTierName:
+    value = _resolve_variable(
+        "recon_cluster_tier",
+        "j3",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    tier = str(value).strip().lower()
+    if tier not in ("j1", "j2", "j3"):
+        raise ValueError("recon_cluster_tier must be j1, j2, or j3")
+    return tier
+
+
 def uc_catalog_var_ref() -> str:
-    """Bundle variable reference used in generated pipeline YAML."""
     return UC_CATALOG_VAR_REF
 
 
@@ -171,7 +161,6 @@ def resolve_pipeline_tag(
     target: str | None = None,
     databricks_yml: Path | None = None,
 ) -> str:
-    """Resolve tag value applied to generated Lakeflow pipelines."""
     value = _resolve_variable(
         "pipeline_tag",
         "",
@@ -184,47 +173,17 @@ def resolve_pipeline_tag(
     return str(value).strip()
 
 
-def resolve_job_tag(
-    override: str | None = None,
-    target: str | None = None,
-    databricks_yml: Path | None = None,
-) -> str:
-    """Resolve tag value applied to bundle jobs."""
-    value = _resolve_variable(
-        "job_tag",
-        "",
-        override=override,
-        target=target,
-        databricks_yml=databricks_yml,
-    )
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
 def pipeline_tag_var_ref() -> str:
-    """Bundle variable reference for pipeline tags."""
     return PIPELINE_TAG_VAR_REF
 
 
 def pipeline_max_update_retry_attempts_var_ref() -> str:
-    """Bundle variable reference for pipeline update retry limit."""
     return PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF
-
-
-def job_tag_var_ref() -> str:
-    """Bundle variable reference for job tags."""
-    return JOB_TAG_VAR_REF
-
-
-def pipeline_cluster_node_type_var_ref() -> str:
-    return PIPELINE_CLUSTER_NODE_TYPE_VAR_REF
 
 
 def pipeline_spark_version_var_ref() -> str:
     return PIPELINE_SPARK_VERSION_VAR_REF
 
 
-def pipeline_instance_pool_id_ref() -> str:
-    """Bundle reference to the dedicated ingest instance pool."""
-    return PIPELINE_INSTANCE_POOL_ID_REF
+def pipeline_cluster_num_workers_var_ref() -> str:
+    return PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF
