@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from util.bundle_config import (
+    LAKEFLOW_SINGLE_USER_VAR_REF,
     PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
 )
@@ -46,6 +47,7 @@ def format_job_cluster_spec_lines(
     *,
     spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
     num_workers_ref: str = PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
+    single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
     indent: str = "          ",
     include_single_node_custom_tag: bool = True,
 ) -> list[str]:
@@ -67,6 +69,13 @@ def format_job_cluster_spec_lines(
         f"{conf_indent}spark.databricks.cluster.profile: singleNode",
         f"{conf_indent}spark.master: local[{tier.local_cores}]",
     ]
+    if single_user_name_ref:
+        lines.extend(
+            [
+                f"{prefix}data_security_mode: SINGLE_USER",
+                f"{prefix}single_user_name: {single_user_name_ref}",
+            ]
+        )
     if include_single_node_custom_tag:
         lines.extend(
             [

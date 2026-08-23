@@ -50,6 +50,9 @@ variables:
     default: 0
   recon_cluster_tier:
     default: j2
+  # Service principal application (client) ID for SINGLE_USER pipeline/recon clusters.
+  lakeflow_single_user:
+    default: ""
 
 targets:
   dev:

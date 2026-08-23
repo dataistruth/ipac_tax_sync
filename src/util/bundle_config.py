@@ -18,6 +18,7 @@ PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
 PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF = "${var.pipeline_cluster_num_workers}"
 HEARTBEAT_JOB_ALERT_MAIL_VAR_REF = "${var.heartbeat_job_alert_mail}"
 RECON_POLL_INTERVAL_SEC_VAR_REF = "${var.recon_poll_interval_sec}"
+LAKEFLOW_SINGLE_USER_VAR_REF = "${var.lakeflow_single_user}"
 
 
 def databricks_yml_path() -> Path:
@@ -188,3 +189,24 @@ def pipeline_spark_version_var_ref() -> str:
 
 def pipeline_cluster_num_workers_var_ref() -> str:
     return PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF
+
+
+def lakeflow_single_user_var_ref() -> str:
+    return LAKEFLOW_SINGLE_USER_VAR_REF
+
+
+def resolve_lakeflow_single_user(
+    override: str | None = None,
+    target: str | None = None,
+    databricks_yml: Path | None = None,
+) -> str:
+    value = _resolve_variable(
+        "lakeflow_single_user",
+        "",
+        override=override,
+        target=target,
+        databricks_yml=databricks_yml,
+    )
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
