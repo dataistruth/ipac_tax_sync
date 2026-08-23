@@ -1,8 +1,8 @@
 # =============================================================================
 # ipac_delta_sync — Lakeflow Connect scaffolding
 #
-# Compute: Lakeflow pipelines → shared instance pool jcp1 (autoscale 1–3, Dedicated SP).
-# Recon uses fixed single-node j2 from cluster_config.json (recon_cluster_tier).
+# Compute: Lakeflow pipelines → D16s_v3 single-node default; large + --split recon sizes by recon_type.
+# Recon job uses fixed single-node tier from cluster_config.json (recon_cluster_tier).
 # =============================================================================
 bundle:
   name: ipac-delta-sync
@@ -56,18 +56,6 @@ variables:
     default: ""
   pipeline_data_security_mode:
     default: DATA_SECURITY_MODE_DEDICATED
-  pipeline_use_instance_pool:
-    default: true
-  instance_pool_node_type_id:
-    default: Standard_D8s_v3
-  instance_pool_min_idle_instances:
-    default: 3
-  instance_pool_max_capacity:
-    default: 30
-  pipeline_cluster_autoscale_min:
-    default: 3
-  pipeline_cluster_autoscale_max:
-    default: 5
 
 targets:
   dev:
