@@ -29,11 +29,11 @@ def generate_ingestion_recon_job_yaml(
     recon_tier_key: ClusterTierName,
 ) -> str:
     tier = _resolve_recon_tier(cluster_config, recon_tier_key)
-    new_cluster_lines = format_job_cluster_spec_lines(
+    cluster_lines = format_job_cluster_spec_lines(
         tier,
         spark_version_ref=PIPELINE_SPARK_VERSION_VAR_REF,
         num_workers_ref=PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
-        indent="            ",
+        indent="          ",
         include_single_node_custom_tag=False,
     )
 
@@ -60,20 +60,20 @@ def generate_ingestion_recon_job_yaml(
         "        pause_status: UNPAUSED",
         "      tasks:",
         "        - task_key: run_ingestion_recon",
-        "          notebook_task:",
-        "            notebook_path: ${workspace.file_path}/src/common/notebooks/run_ingestion_recon.py",
-        "            base_parameters:",
-        "              uc_catalog: ${var.uc_catalog}",
-        "              ipac_metadata_schema: ${var.ipac_metadata_schema}",
-        "              pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json",
-        "              dest_schema_suffix: ${var.dest_schema_suffix}",
-        f"              poll_interval_sec: {RECON_POLL_INTERVAL_SEC_VAR_REF}",
         "          new_cluster:",
-        *new_cluster_lines,
+        *cluster_lines,
         "            custom_tags:",
         "              ResourceClass: SingleNode",
         f"              bundle: {JOB_TAG_VAR_REF}",
         "              purpose: sql_recon",
+        "          notebook_task:",
+        "            notebook_path: ${workspace.file_path}/src/common/notebooks/run_ingestion_recon.py",
+        "            base_parameters:",
+        "              uc_catalog: ${resources.schemas.schema_ipac_metadata.catalog_name}",
+        "              ipac_metadata_schema: ${resources.schemas.schema_ipac_metadata.name}",
+        "              pipeline_names_file: ${workspace.file_path}/generated/config/pipeline_names.json",
+        "              dest_schema_suffix: ${var.dest_schema_suffix}",
+        f"              poll_interval_sec: {RECON_POLL_INTERVAL_SEC_VAR_REF}",
     ]
     return "\n".join(lines) + "\n"
 
