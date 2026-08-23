@@ -9,9 +9,6 @@ resources:
       max_capacity: ${var.instance_pool_max_capacity}
       preloaded_spark_versions:
         - ${var.pipeline_spark_version}
-      custom_tags:
-        bundle: ${var.pipeline_tag}
-        purpose: lakeflow_connect
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.grant_group}
