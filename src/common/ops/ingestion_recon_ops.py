@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -853,10 +852,10 @@ def prefetch_ct_delta_parallel(
     max_workers: int = 10,
 ) -> tuple[dict[str, dict[str, Any] | None], dict[str, tuple[int | None, int | None]]]:
     """
-    Parallel UC work via ThreadPoolExecutor (up to max_workers concurrent spark.sql).
+    Prefetch delta history metadata and SQL/Delta row counts for recon samples.
 
-    - DESCRIBE HISTORY for history_probes only (caller caps sample + skips verified)
-    - SQL UNION COUNT(*) + parallel Delta counts for sample tables needing recount
+    SQL row counts use one UNION batch; UC spark.sql calls run sequentially
+    (Spark sessions are not thread-safe).
     """
     table_refresh_cache: dict[str, dict[str, Any] | None] = {}
     row_count_cache: dict[str, tuple[int | None, int | None]] = {}
@@ -894,30 +893,14 @@ def prefetch_ct_delta_parallel(
     if task_count == 0:
         return table_refresh_cache, row_count_cache
 
-    workers = max(1, min(max_workers, task_count))
-    if workers <= 1:
-        for probe in history_probes:
-            key, _, value = _parallel_table_refresh(spark, catalog, ctx, probe.table_name)
-            table_refresh_cache[key] = value
-        for table_nm in need_count_names:
-            key, _, delta_val = _parallel_delta_row_count(spark, catalog, ctx, table_nm)
-            row_count_cache[key] = (sql_counts.get(key), delta_val)
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [
-                pool.submit(_parallel_table_refresh, spark, catalog, ctx, p.table_name)
-                for p in history_probes
-            ]
-            futures.extend(
-                pool.submit(_parallel_delta_row_count, spark, catalog, ctx, table_nm)
-                for table_nm in need_count_names
-            )
-            for fut in as_completed(futures):
-                key, kind, value = fut.result()
-                if kind == "history":
-                    table_refresh_cache[key] = value
-                else:
-                    row_count_cache[key] = (sql_counts.get(key), value)
+    # Spark sessions are not thread-safe; parallel spark.sql often stalls or returns
+    # empty results. Run UC calls sequentially (SQL counts are already one batch).
+    for probe in history_probes:
+        key, _, value = _parallel_table_refresh(spark, catalog, ctx, probe.table_name)
+        table_refresh_cache[key] = value
+    for table_nm in need_count_names:
+        key, _, delta_val = _parallel_delta_row_count(spark, catalog, ctx, table_nm)
+        row_count_cache[key] = (sql_counts.get(key), delta_val)
 
     return table_refresh_cache, row_count_cache
 
@@ -1400,6 +1383,7 @@ def run_simplified_pipeline_recon(
     row_count_sample_size: int = 5,
     history_sample_size: int = 5,
     uc_parallel_workers: int = 10,
+    pending_ct_tables: list[PendingCtTable] | None = None,
 ) -> tuple[int, int, int]:
     """
   CT-driven recon for one pipeline: only tables with pending CT since watermark.
@@ -1473,7 +1457,16 @@ def run_simplified_pipeline_recon(
             print(f"[recon] WARN SQL connection failed for {ctx.pipeline_key}: {exc}")
             return 0, 0, 0
 
-    pending_tables = discover_pending_ct_tables(conn, client, src_schema, active_tables)
+    pending_tables = (
+        list(pending_ct_tables)
+        if pending_ct_tables is not None
+        else discover_pending_ct_tables(conn, client, src_schema, active_tables)
+    )
+    if pending_ct_tables is not None:
+        print(
+            f"[recon] {ctx.pipeline_key}: reusing CT probe "
+            f"({len(pending_tables)} pending table(s), skip rediscover)"
+        )
     if not pending_tables:
         ct_head = None
         try:
@@ -1606,18 +1599,11 @@ def run_simplified_pipeline_recon(
             max_workers=uc_parallel_workers,
         )
         prefetch_elapsed = time.perf_counter() - prefetch_start
-        workers_used = max(
-            1,
-            min(
-                uc_parallel_workers,
-                len(history_probes) + len(sample_names),
-            ),
-        )
         print(
-            f"[recon] {ctx.pipeline_key}: uc_parallel prefetch "
-            f"workers={workers_used} row_count_tables={len(sample_names)} "
+            f"[recon] {ctx.pipeline_key}: uc prefetch "
+            f"row_count_tables={len(sample_names)} "
             f"delta_history_ts_tables={len(history_probes)} "
-            f"elapsed={prefetch_elapsed:.1f}s"
+            f"elapsed={prefetch_elapsed:.1f}s (UC sequential)"
         )
         for table_nm in sample_names:
             key = table_nm.casefold()
@@ -2802,12 +2788,20 @@ def run_all_pipeline_recon(
                 )
 
         ct_pending_probe: list[PendingCtTable] = []
+        discover_start = time.perf_counter()
         if simplified_recon and use_sql_server_audit:
             try:
                 probe_conn, _ = open_audit_connection(ipac_client, dbutils=dbutils)
                 active_tables = [c.table_nm for c in ctx.tables]
                 ct_pending_probe = discover_pending_ct_tables(
                     probe_conn, ipac_client, src_schema, active_tables
+                )
+                discover_elapsed = time.perf_counter() - discover_start
+                print(
+                    f"[recon] {ctx.pipeline_key}: CT discover batch "
+                    f"configured={len(active_tables)} pending={len(ct_pending_probe)} "
+                    f"elapsed={discover_elapsed:.1f}s "
+                    f"(1 watermark IN + 1 CHANGETABLE UNION)"
                 )
                 if (
                     ct_pending_probe
@@ -2931,6 +2925,7 @@ def run_all_pipeline_recon(
                 row_count_sample_size=row_count_sample_size,
                 history_sample_size=history_sample_size,
                 uc_parallel_workers=row_count_parallel_workers,
+                pending_ct_tables=ct_pending_probe if ct_pending_probe else None,
             )
             totals["recon_ready"] += r
             totals["ct_pending_tables"] += ct_n

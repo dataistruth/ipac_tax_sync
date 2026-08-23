@@ -64,6 +64,19 @@ def test_common_tables_load_and_recon_type_exists():
     assert first.scd_type in (1, 2)
 
 
+def test_snapshot_in_table_name_sets_recon_type_2():
+    from util.models import CommonTable
+
+    assert CommonTable(table_nm="K1Input_Snapshot", recon_type=1).recon_type == 2
+    assert CommonTable(table_nm="TrialBalanceAdjustments_SnapShot", recon_type=1).recon_type == 2
+    assert CommonTable(table_nm="Entity", recon_type=1).recon_type == 1
+
+    catalog = load_common_tables()
+    snapshots = [t for t in catalog.tables if "snapshot" in t.table_nm.casefold()]
+    assert len(snapshots) >= 40
+    assert all(t.recon_type == 2 for t in snapshots)
+
+
 def test_resolve_effective_tables_for_first_client():
     catalog = load_common_tables()
     client = _active_clients()[0]

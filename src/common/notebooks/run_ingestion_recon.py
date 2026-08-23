@@ -22,7 +22,7 @@ dbutils.widgets.text("dest_schema_suffix", "_poc1", "Destination schema suffix")
 dbutils.widgets.text("poll_interval_sec", "30", "Poll interval (seconds)")
 dbutils.widgets.text("table_quiesce_sec", "10", "Seconds after sql_ct_reference before delta last_write gate")
 dbutils.widgets.text("row_count_sample_size", "5", "Max recon_type 2 tables for COUNT per poll (0=all)")
-dbutils.widgets.text("uc_parallel_workers", "10", "Parallel UC threads (history + Delta count)")
+dbutils.widgets.text("uc_parallel_workers", "1", "UC row_count threads (1=sequential; Spark not thread-safe)")
 
 uc_catalog = dbutils.widgets.get("uc_catalog").strip() or "dev7"
 metadata_schema = dbutils.widgets.get("ipac_metadata_schema").strip() or "ipac_metadata"

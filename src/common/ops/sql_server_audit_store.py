@@ -169,42 +169,246 @@ def _sql_ct_reference_timestamp(
     return max(candidates)
 
 
+def _sql_literal_str(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _qualified_source_table(src_schema: str, table_name: str) -> str:
+    schema = (src_schema or "dbo").replace("]", "]]").replace("[", "")
+    table = table_name.replace("]", "]]").replace("[", "")
+    return f"{schema}.{table}"
+
+
+def read_table_watermarks_batch(
+    conn: Any,
+    database_name: str,
+    schema_name: str,
+    table_names: list[str],
+) -> dict[str, TableWatermark]:
+    """One query: watermarks for all active tables (table_name IN (...))."""
+    unique_names = sorted({t for t in table_names if t})
+    if not unique_names:
+        return {}
+    db = database_name.replace("'", "''")
+    schema = (schema_name or "dbo").replace("'", "''")
+    in_list = ", ".join(_sql_literal_str(name) for name in unique_names)
+    sql = f"""
+SELECT table_name, last_version, updated_at, client_nm, pipeline_key
+FROM {METADATA_TABLE_PREFIX}.ct_table_watermark
+WHERE database_name = '{db}'
+  AND schema_name = '{schema}'
+  AND table_name IN ({in_list});
+""".strip()
+    out: dict[str, TableWatermark] = {}
+    try:
+        rows = fetch_all_as_dict(conn, sql)
+    except Exception as exc:
+        print(f"[recon] WARN batch table watermark read failed: {exc}")
+        return out
+    for row in rows:
+        name = str(row.get("table_name") or "")
+        if not name:
+            continue
+        updated_at = row.get("updated_at")
+        if isinstance(updated_at, datetime) and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        out[name.casefold()] = TableWatermark(
+            database_name=database_name,
+            schema_name=schema_name or "dbo",
+            table_name=name,
+            last_version=int(row.get("last_version") or 0),
+            client_nm=str(row.get("client_nm") or ""),
+            pipeline_key=str(row.get("pipeline_key") or ""),
+            updated_at=updated_at if isinstance(updated_at, datetime) else None,
+        )
+    return out
+
+
+def build_batch_pending_ct_counts_sql(
+    src_schema: str,
+    table_watermarks: dict[str, int],
+    ct_head: int,
+) -> str:
+    """UNION ALL CHANGETABLE counts for many tables (one round-trip)."""
+    parts: list[str] = []
+    head = int(ct_head)
+    for table_nm, watermark_before in sorted(
+        table_watermarks.items(), key=lambda item: item[0].casefold()
+    ):
+        qualified = _qualified_source_table(src_schema, table_nm)
+        wm = int(watermark_before)
+        parts.append(
+            f"""
+SELECT {_sql_literal_str(table_nm)} AS table_name,
+       ct.SYS_CHANGE_OPERATION AS op,
+       COUNT_BIG(*) AS cnt
+FROM CHANGETABLE(CHANGES {qualified}, {wm}) AS ct
+WHERE ct.SYS_CHANGE_OPERATION IN ('I', 'U', 'D')
+  AND ct.SYS_CHANGE_VERSION <= {head}
+GROUP BY ct.SYS_CHANGE_OPERATION""".strip()
+        )
+    return "\nUNION ALL\n".join(parts)
+
+
+def fetch_pending_ct_counts_batch(
+    conn: Any,
+    src_schema: str,
+    table_watermarks: dict[str, int],
+    ct_head: int,
+) -> dict[str, CtPendingCounts]:
+    """Pending I/U/D per table from one batched CHANGETABLE query."""
+    if not table_watermarks:
+        return {}
+    sql = build_batch_pending_ct_counts_sql(src_schema, table_watermarks, ct_head)
+    out: dict[str, CtPendingCounts] = {
+        name.casefold(): CtPendingCounts() for name in table_watermarks
+    }
+    try:
+        rows = fetch_all_as_dict(conn, sql)
+    except Exception as exc:
+        print(f"[recon] WARN batch pending CT counts failed: {exc}")
+        return {}
+    for row in rows:
+        name = str(row.get("table_name") or "").casefold()
+        if not name or name not in out:
+            continue
+        op = str(row.get("op") or "").strip().upper()
+        cnt = int(row.get("cnt") or 0)
+        pending = out[name]
+        if op == "I":
+            out[name] = CtPendingCounts(
+                inserts=cnt, updates=pending.updates, deletes=pending.deletes
+            )
+        elif op == "U":
+            out[name] = CtPendingCounts(
+                inserts=pending.inserts, updates=cnt, deletes=pending.deletes
+            )
+        elif op == "D":
+            out[name] = CtPendingCounts(
+                inserts=pending.inserts, updates=pending.updates, deletes=cnt
+            )
+    return out
+
+
+def build_batch_ct_commit_time_sql(
+    src_schema: str,
+    table_watermarks: dict[str, int],
+    ct_head: int,
+) -> str:
+    """UNION ALL latest CT commit times for tables with pending changes."""
+    parts: list[str] = []
+    head = int(ct_head)
+    for table_nm, watermark_before in sorted(
+        table_watermarks.items(), key=lambda item: item[0].casefold()
+    ):
+        qualified = _qualified_source_table(src_schema, table_nm)
+        wm = int(watermark_before)
+        parts.append(
+            f"""
+SELECT {_sql_literal_str(table_nm)} AS table_name,
+       MAX(ct.commit_time) AS latest_ct_commit_at
+FROM CHANGETABLE(CHANGES {qualified}, {wm}) AS chg
+INNER JOIN sys.dm_tran_commit_table AS ct ON ct.commit_ts = chg.SYS_CHANGE_VERSION
+WHERE chg.SYS_CHANGE_OPERATION IN ('I', 'U', 'D')
+  AND chg.SYS_CHANGE_VERSION <= {head}""".strip()
+        )
+    return "\nUNION ALL\n".join(parts)
+
+
+def fetch_latest_pending_ct_commit_times_batch(
+    conn: Any,
+    src_schema: str,
+    table_watermarks: dict[str, int],
+    ct_head: int,
+) -> dict[str, datetime | None]:
+    if not table_watermarks:
+        return {}
+    sql = build_batch_ct_commit_time_sql(src_schema, table_watermarks, ct_head)
+    out: dict[str, datetime | None] = {name.casefold(): None for name in table_watermarks}
+    try:
+        rows = fetch_all_as_dict(conn, sql)
+    except Exception as exc:
+        print(f"[recon] WARN batch CT commit_time failed: {exc}")
+        return out
+    for row in rows:
+        name = str(row.get("table_name") or "").casefold()
+        if not name:
+            continue
+        value = row.get("latest_ct_commit_at")
+        if value is None:
+            continue
+        if isinstance(value, datetime):
+            parsed = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+        else:
+            text = str(value).strip()
+            if not text:
+                continue
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                parsed = (
+                    parsed.replace(tzinfo=timezone.utc)
+                    if parsed.tzinfo is None
+                    else parsed
+                )
+            except ValueError:
+                continue
+        out[name] = parsed
+    return out
+
+
 def discover_pending_ct_tables(
     conn: Any,
     client: Any,
     src_schema: str,
     table_names: list[str],
 ) -> list[PendingCtTable]:
-    """List configured tables with CT activity since stored watermarks (pending I/U/D > 0)."""
+    """
+    List configured tables with CT activity since stored watermarks.
+
+    Uses batched SQL: one IN query for watermarks + one UNION ALL CHANGETABLE
+    query for pending counts (+ one commit-time batch for changed tables only).
+    """
     database_name = client.src_db_nm
+    active = [t for t in table_names if t]
+    if not active:
+        return []
+
     ct_head = fetch_change_tracking_current_version(conn)
     if ct_head is None:
         return []
 
+    wm_batch = read_table_watermarks_batch(conn, database_name, src_schema, active)
+    table_watermarks: dict[str, int] = {}
+    watermark_meta: dict[str, TableWatermark | None] = {}
+    for table_nm in active:
+        wm_row = wm_batch.get(table_nm.casefold())
+        watermark_meta[table_nm.casefold()] = wm_row
+        table_watermarks[table_nm] = wm_row.last_version if wm_row else 0
+
+    pending_by_table = fetch_pending_ct_counts_batch(
+        conn, src_schema, table_watermarks, ct_head
+    )
+    changed_watermarks = {
+        table_nm: table_watermarks[table_nm]
+        for table_nm in active
+        if pending_by_table.get(table_nm.casefold(), CtPendingCounts()).total > 0
+    }
+    commit_times: dict[str, datetime | None] = {}
+    if changed_watermarks:
+        commit_times = fetch_latest_pending_ct_commit_times_batch(
+            conn, src_schema, changed_watermarks, ct_head
+        )
+
     pending_tables: list[PendingCtTable] = []
-    for table_nm in table_names:
-        if not table_nm:
-            continue
-        watermark = read_table_watermark(conn, database_name, src_schema, table_nm)
-        watermark_before = watermark.last_version if watermark else 0
-        watermark_updated_at = watermark.updated_at if watermark else None
-        latest_ct_commit_at: datetime | None = None
-        try:
-            latest_ct_commit_at = fetch_latest_pending_ct_commit_time(
-                conn, src_schema, table_nm, watermark_before, ct_head
-            )
-        except Exception as exc:
-            print(
-                f"[recon] WARN latest CT commit time failed for {table_nm}: {exc}"
-            )
-        try:
-            pending = fetch_pending_ct_counts(
-                conn, src_schema, table_nm, watermark_before, ct_head
-            )
-        except Exception:
-            continue
+    for table_nm in active:
+        key = table_nm.casefold()
+        pending = pending_by_table.get(key, CtPendingCounts())
         if pending.total <= 0:
             continue
+        wm_row = watermark_meta.get(key)
+        watermark_before = table_watermarks[table_nm]
+        watermark_updated_at = wm_row.updated_at if wm_row else None
+        latest_ct_commit_at = commit_times.get(key)
         if latest_ct_commit_at is None and watermark_before > 0:
             print(
                 f"[recon] WARN {table_nm}: no CT commit_time from CHANGETABLE "
