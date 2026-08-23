@@ -376,7 +376,7 @@ COMMENT 'Aggregated per-flow metrics when flow reaches COMPLETED'
 
 
 def recon_ready_create_sql(catalog: str, schema: str) -> str:
-    table = qualified_table(catalog, schema, RECON_READY_TABLE)
+    table = qualified_table_quoted(catalog, schema, RECON_READY_TABLE)
     return f"""
 CREATE TABLE IF NOT EXISTS {table} (
   recon_id STRING NOT NULL,
@@ -517,7 +517,7 @@ def _recon_ready_spark_schema():
 
 def _evolve_recon_ready_table(spark, catalog: str, schema: str) -> None:
     """Add DB-level columns to existing recon_ready tables."""
-    table = qualified_table(catalog, schema, RECON_READY_TABLE)
+    table = qualified_table_quoted(catalog, schema, RECON_READY_TABLE)
     for col_def in (
         "database_name STRING",
         "tables_json STRING",
