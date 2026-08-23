@@ -27,15 +27,12 @@ print(f"drop    : {drop_schema_first}")
 from common.ops.process_log_store import ensure_process_log_table
 from common.ops.recon_store import ensure_recon_ready_table, recon_ready_create_sql
 
+spark.sql(f"USE CATALOG `{uc_catalog}`")
 if drop_schema_first:
-    spark.sql(
-        f"DROP SCHEMA IF EXISTS `{metadata_schema}` IN CATALOG `{uc_catalog}` CASCADE"
-    )
+    spark.sql(f"DROP SCHEMA IF EXISTS `{metadata_schema}` CASCADE")
     print(f"Dropped {uc_catalog}.{metadata_schema}")
 
-spark.sql(
-    f"CREATE SCHEMA IF NOT EXISTS `{metadata_schema}` IN CATALOG `{uc_catalog}`"
-)
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{metadata_schema}`")
 spark.sql(recon_ready_create_sql(uc_catalog, metadata_schema))
 ensure_recon_ready_table(spark, uc_catalog, metadata_schema)
 ensure_process_log_table(spark, uc_catalog, metadata_schema)

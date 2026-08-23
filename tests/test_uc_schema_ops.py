@@ -14,8 +14,8 @@ def test_ensure_uc_schema_executes_create_if_not_exists():
 
     spark = _Spark()
     ensure_uc_schema(spark, "dev7", "ipac_metadata")
-    assert len(spark.sql_calls) == 1
-    assert "CREATE SCHEMA IF NOT EXISTS" in spark.sql_calls[0]
-    assert "IN CATALOG" in spark.sql_calls[0]
+    assert len(spark.sql_calls) == 2
+    assert "USE CATALOG" in spark.sql_calls[0]
     assert "`dev7`" in spark.sql_calls[0]
-    assert "`ipac_metadata`" in spark.sql_calls[0]
+    assert "CREATE SCHEMA IF NOT EXISTS" in spark.sql_calls[1]
+    assert "`ipac_metadata`" in spark.sql_calls[1]
