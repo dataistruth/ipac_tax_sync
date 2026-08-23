@@ -10,7 +10,6 @@ from util.bundle_config import (
     PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
     RECON_POLL_INTERVAL_SEC_VAR_REF,
-    SQL_RECON_AUTOTERMINATION_MINUTES_VAR_REF,
 )
 from util.cluster_tiers import format_job_cluster_spec_lines
 from util.models import ClusterConfig, ClusterTierName
@@ -69,7 +68,6 @@ def generate_ingestion_recon_job_yaml(
         "              ResourceClass: SingleNode",
         f"              bundle: {JOB_TAG_VAR_REF}",
         "              purpose: sql_recon",
-        f"            autotermination_minutes: {SQL_RECON_AUTOTERMINATION_MINUTES_VAR_REF}",
         "      tasks:",
         "        - task_key: run_ingestion_recon",
         f"          job_cluster_key: {RECON_JOB_CLUSTER_KEY}",

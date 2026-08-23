@@ -16,7 +16,6 @@ JOB_TAG_VAR_REF = "${var.job_tag}"
 PIPELINE_MAX_UPDATE_RETRY_ATTEMPTS_VAR_REF = "${var.pipeline_max_update_retry_attempts}"
 PIPELINE_SPARK_VERSION_VAR_REF = "${var.pipeline_spark_version}"
 PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF = "${var.pipeline_cluster_num_workers}"
-SQL_RECON_AUTOTERMINATION_MINUTES_VAR_REF = "${var.sql_recon_autotermination_minutes}"
 HEARTBEAT_JOB_ALERT_MAIL_VAR_REF = "${var.heartbeat_job_alert_mail}"
 RECON_POLL_INTERVAL_SEC_VAR_REF = "${var.recon_poll_interval_sec}"
 

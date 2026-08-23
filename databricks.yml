@@ -51,8 +51,6 @@ variables:
     default: 0
   recon_cluster_tier:
     default: j3
-  sql_recon_autotermination_minutes:
-    default: 0
 
 targets:
   dev:
@@ -76,7 +74,6 @@ targets:
       num_of_tables_in_pipeline: 10
       recon_cluster_tier: j3
       pipeline_cluster_num_workers: 0
-      sql_recon_autotermination_minutes: 0
 
   prod:
     mode: production
@@ -95,4 +92,3 @@ targets:
       pipeline_max_update_retry_attempts: 2
       recon_cluster_tier: j3
       pipeline_cluster_num_workers: 0
-      sql_recon_autotermination_minutes: 0

@@ -30,7 +30,6 @@ resources:
               ResourceClass: SingleNode
               bundle: ${var.job_tag}
               purpose: sql_recon
-            autotermination_minutes: ${var.sql_recon_autotermination_minutes}
       tasks:
         - task_key: run_ingestion_recon
           job_cluster_key: recon_cluster
