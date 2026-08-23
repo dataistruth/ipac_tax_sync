@@ -190,7 +190,7 @@ def generate_client_pipelines_yaml(
         if use_instance_pool:
             tier_note = (
                 f"# client_size: {client.client_size} → shared pool jcp1 "
-                f"(autoscale 1–3, SINGLE_USER SP)"
+                f"(autoscale 1–3, Dedicated SP)"
             )
         else:
             tier_note = (

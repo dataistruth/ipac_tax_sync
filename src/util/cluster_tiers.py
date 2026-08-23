@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 
 from util.bundle_config import (
     LAKEFLOW_INSTANCE_POOL_ID_REF,
-    LAKEFLOW_INSTANCE_POOL_RESOURCE_KEY,
     LAKEFLOW_SINGLE_USER_VAR_REF,
     PIPELINE_CLUSTER_AUTOSCALE_MAX_VAR_REF,
     PIPELINE_CLUSTER_AUTOSCALE_MIN_VAR_REF,
     PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
+    PIPELINE_DATA_SECURITY_MODE_VAR_REF,
     PIPELINE_SPARK_VERSION_VAR_REF,
 )
 from util.models import ClientSize, ClusterTierName
@@ -46,11 +46,27 @@ def resolve_job_tier_for_client(client: ClientEntry) -> ClusterTierName:
     return expected_job_tier_for_size(client.client_size)
 
 
+def _dedicated_access_mode_lines(
+    prefix: str,
+    *,
+    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
+    single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
+) -> list[str]:
+    """Dedicated access (UI) = DATA_SECURITY_MODE_DEDICATED + single_user_name (SP client ID)."""
+    if not single_user_name_ref:
+        return []
+    return [
+        f"{prefix}data_security_mode: {data_security_mode_ref}",
+        f"{prefix}single_user_name: {single_user_name_ref}",
+    ]
+
+
 def format_job_cluster_spec_lines(
     tier: ClusterTier,
     *,
     spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
     num_workers_ref: str = PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
+    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
     single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
     indent: str = "          ",
     include_single_node_custom_tag: bool = True,
@@ -73,13 +89,13 @@ def format_job_cluster_spec_lines(
         f"{conf_indent}spark.databricks.cluster.profile: singleNode",
         f"{conf_indent}spark.master: local[{tier.local_cores}]",
     ]
-    if single_user_name_ref:
-        lines.extend(
-            [
-                f"{prefix}data_security_mode: SINGLE_USER",
-                f"{prefix}single_user_name: {single_user_name_ref}",
-            ]
+    lines.extend(
+        _dedicated_access_mode_lines(
+            prefix,
+            data_security_mode_ref=data_security_mode_ref,
+            single_user_name_ref=single_user_name_ref,
         )
+    )
     if include_single_node_custom_tag:
         lines.extend(
             [
@@ -96,10 +112,11 @@ def format_instance_pool_cluster_spec_lines(
     spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
     autoscale_min_ref: str = PIPELINE_CLUSTER_AUTOSCALE_MIN_VAR_REF,
     autoscale_max_ref: str = PIPELINE_CLUSTER_AUTOSCALE_MAX_VAR_REF,
+    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
     single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
     indent: str = "          ",
 ) -> list[str]:
-    """Autoscaling cluster on a shared instance pool with dedicated SP (SINGLE_USER)."""
+    """Autoscaling cluster on shared instance pool with Dedicated access for one SP."""
     prefix = indent
     conf_indent = indent + "  "
     lines = [
@@ -109,14 +126,14 @@ def format_instance_pool_cluster_spec_lines(
         f"{conf_indent}min_workers: {autoscale_min_ref}",
         f"{conf_indent}max_workers: {autoscale_max_ref}",
     ]
-    if single_user_name_ref:
-        lines.extend(
-            [
-                f"{prefix}data_security_mode: SINGLE_USER",
-                f"{prefix}single_user_name: {single_user_name_ref}",
-            ]
+    lines.extend(
+        _dedicated_access_mode_lines(
+            prefix,
+            data_security_mode_ref=data_security_mode_ref,
+            single_user_name_ref=single_user_name_ref,
         )
-    # Do not set custom_tags that duplicate pool keys (bundle, purpose) — Databricks rejects.
+    )
+    # Do not set custom_tags that duplicate pool keys — Databricks rejects overlapping keys.
     return lines
 
 
@@ -135,4 +152,5 @@ def format_pipeline_cluster_lines(
         )
     if tier.policy_id:
         lines.append(f"          policy_id: {tier.policy_id}")
+        lines.append("          apply_policy_default_values: true")
     return lines

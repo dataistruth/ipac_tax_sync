@@ -1,7 +1,7 @@
 # =============================================================================
 # ipac_delta_sync — Lakeflow Connect scaffolding
 #
-# Compute: Lakeflow pipelines → shared instance pool jcp1 (autoscale 1–3, SINGLE_USER SP).
+# Compute: Lakeflow pipelines → shared instance pool jcp1 (autoscale 1–3, Dedicated SP).
 # Recon uses fixed single-node j2 from cluster_config.json (recon_cluster_tier).
 # =============================================================================
 bundle:
@@ -51,9 +51,11 @@ variables:
     default: 0
   recon_cluster_tier:
     default: j2
-  # Service principal application (client) ID for SINGLE_USER pipeline/recon clusters.
+  # Service principal application (client) ID for Dedicated pipeline/recon clusters.
   lakeflow_single_user:
     default: ""
+  pipeline_data_security_mode:
+    default: DATA_SECURITY_MODE_DEDICATED
   pipeline_use_instance_pool:
     default: true
   instance_pool_node_type_id:

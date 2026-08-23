@@ -124,7 +124,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert f"pipelines.numUpdateRetryAttempts: {RETRY_REF}" in yaml_text
     assert "clusters:" in yaml_text
     assert f"instance_pool_id: {POOL_REF}" in yaml_text
-    assert "data_security_mode: SINGLE_USER" in yaml_text
+    assert "data_security_mode: ${var.pipeline_data_security_mode}" in yaml_text
     assert "single_user_name: ${var.lakeflow_single_user}" in yaml_text
     assert f"min_workers: {AUTOSCALE_MIN_REF}" in yaml_text
     assert f"max_workers: {AUTOSCALE_MAX_REF}" in yaml_text

@@ -26,6 +26,8 @@ INSTANCE_POOL_NODE_TYPE_VAR_REF = "${var.instance_pool_node_type_id}"
 INSTANCE_POOL_MIN_IDLE_VAR_REF = "${var.instance_pool_min_idle_instances}"
 INSTANCE_POOL_MAX_CAPACITY_VAR_REF = "${var.instance_pool_max_capacity}"
 LAKEFLOW_INSTANCE_POOL_RESOURCE_KEY = "jcp1"
+# UI "Dedicated" = DATA_SECURITY_MODE_DEDICATED (SINGLE_USER is the legacy alias).
+PIPELINE_DATA_SECURITY_MODE_VAR_REF = "${var.pipeline_data_security_mode}"
 
 
 def databricks_yml_path() -> Path:
