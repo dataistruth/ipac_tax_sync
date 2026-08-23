@@ -37,7 +37,7 @@ variables:
   heartbeat_job_alert_mail:
     default: mukessingh@deloitte.com
   num_of_tables_in_pipeline:
-    default: 10
+    default: 220
   pipeline_tag:
     default: ipac_delta_sync
   job_tag:
@@ -70,7 +70,7 @@ targets:
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
-      num_of_tables_in_pipeline: 10
+      num_of_tables_in_pipeline: 220
       recon_cluster_tier: j2
       pipeline_cluster_num_workers: 0
 
@@ -89,5 +89,6 @@ targets:
       pipeline_tag: ipac_delta_sync
       job_tag: ipac_delta_sync
       pipeline_max_update_retry_attempts: 2
+      num_of_tables_in_pipeline: 220
       recon_cluster_tier: j2
       pipeline_cluster_num_workers: 0
