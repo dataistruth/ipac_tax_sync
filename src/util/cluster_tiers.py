@@ -116,13 +116,7 @@ def format_instance_pool_cluster_spec_lines(
                 f"{prefix}single_user_name: {single_user_name_ref}",
             ]
         )
-    lines.extend(
-        [
-            f"{prefix}custom_tags:",
-            f"{conf_indent}bundle: lakeflow_connect",
-            f"{conf_indent}compute: instance_pool",
-        ]
-    )
+    # Do not set custom_tags that duplicate pool keys (bundle, purpose) — Databricks rejects.
     return lines
 
 
