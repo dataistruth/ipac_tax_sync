@@ -296,6 +296,23 @@ def test_generate_yaml_splits_by_recon_type():
     assert "--split recon" in yaml_text
 
 
+def test_generate_yaml_omits_scd_type_1_when_flag_off():
+    catalog = load_common_tables()
+    client = get_client("iPC_2025_Dev7_15350")
+    tables = resolve_effective_tables(client, catalog, load_client_overrides(client.client_nm))
+    yaml_text = generate_client_pipelines_yaml(
+        client,
+        tables[:3],
+        uc_catalog_ref=UC_REF,
+        num_of_tables_in_pipeline=10,
+        dest_schema_suffix="poc_1",
+        emit_scd_type_1=False,
+    )
+    assert "SCD_TYPE_1" not in yaml_text
+    assert "pipeline_scd_type_1: omitted" in yaml_text
+    assert "--scd1 off" in yaml_text
+
+
 def test_generate_yaml_splits_into_multiple_pipelines():
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15350")

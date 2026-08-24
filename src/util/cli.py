@@ -184,6 +184,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         target=getattr(args, "target", None),
     )
     pipeline_split_mode = getattr(args, "split", "count")
+    scd1_mode = getattr(args, "scd1", "on")
+    emit_scd_type_1 = scd1_mode != "off"
     schema_dir = generated_schema_dir()
     config_schema_dir = generated_config_schema_dir()
     config_dir = generated_config_dir()
@@ -221,6 +223,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                         dest_schema_suffix=dest_schema_suffix,
                         pipeline_tag_ref=pipeline_tag_ref,
                         pipeline_split_mode=pipeline_split_mode,
+                        emit_scd_type_1=emit_scd_type_1,
                     )
                 )
                 print()
@@ -235,7 +238,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             )
             _log(
                 f"--- {client.client_nm}: writing bundle pipeline YAML "
-                f"({len(tables)} tables, split={pipeline_split_mode})..."
+                f"({len(tables)} tables, split={pipeline_split_mode}, scd1={scd1_mode})..."
             )
             bundle_path = write_bundle_pipeline_yaml(
                 client,
@@ -249,6 +252,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 pipeline_tag_ref=pipeline_tag_ref,
                 metadata_schema=metadata_schema,
                 pipeline_split_mode=pipeline_split_mode,
+                emit_scd_type_1=emit_scd_type_1,
             )
             pipeline_batches = split_tables_for_pipelines(
                 tables,
@@ -277,7 +281,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             print(
                 f"Generated {bundle_path} ({len(tables)} tables, "
                 f"{len(pipeline_batches)} pipeline(s), split={pipeline_split_mode}"
-                + (f", batch={num_tables}" if pipeline_split_mode == "count" else ""),
+                + (f", batch={num_tables}" if pipeline_split_mode == "count" else "")
+                + (", scd1=off" if not emit_scd_type_1 else ""),
                 flush=True,
             )
             print(f"Generated {enable_path}", flush=True)
@@ -361,6 +366,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Pipeline split strategy: count = chunk by num_of_tables_in_pipeline (default); "
             "recon = one pipeline per recon_type (1, 2, 3)"
+        ),
+    )
+    generate_p.add_argument(
+        "--scd1",
+        choices=("on", "off"),
+        default="on",
+        help=(
+            "Emit scd_type: SCD_TYPE_1 for scd_type=1 tables (default on). "
+            "off = omit SCD_TYPE_1 lines; SCD_TYPE_2 tables still included."
         ),
     )
     generate_p.add_argument(
