@@ -35,7 +35,7 @@ def ensure_uc_schema(spark, catalog: str, schema: str) -> None:
         raise ValueError(
             f"UC catalog '{cat}' not visible on this compute. "
             f"Available catalogs: {sorted(available)}. "
-            "Set job cluster data_security_mode to DATA_SECURITY_MODE_DEDICATED and deploy bundle schemas, "
+            "Set job cluster data_security_mode to SINGLE_USER and deploy bundle schemas, "
             "or pass uc_catalog=${var.uc_catalog} from databricks.yml."
         )
 

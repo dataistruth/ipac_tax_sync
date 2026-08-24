@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from util.bundle_config import (
     LAKEFLOW_SINGLE_USER_VAR_REF,
     PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
-    PIPELINE_DATA_SECURITY_MODE_VAR_REF,
+    PIPELINE_DATA_SECURITY_MODE,
     PIPELINE_SPARK_VERSION_VAR_REF,
 )
 from util.models import ClientSize, ClusterTierName
@@ -106,17 +106,16 @@ def pipeline_cluster_note(
     return f"# pipeline cluster: {DEFAULT_PIPELINE_CLUSTER.summary}"
 
 
-def _dedicated_access_mode_lines(
+def _single_user_access_mode_lines(
     prefix: str,
     *,
-    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
     single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
 ) -> list[str]:
-    """Dedicated access (UI) = DATA_SECURITY_MODE_DEDICATED + single_user_name (SP client ID)."""
+    """SINGLE_USER access mode + single_user_name (SP application ID or user email)."""
     if not single_user_name_ref:
         return []
     return [
-        f"{prefix}data_security_mode: {data_security_mode_ref}",
+        f"{prefix}data_security_mode: {PIPELINE_DATA_SECURITY_MODE}",
         f"{prefix}single_user_name: {single_user_name_ref}",
     ]
 
@@ -125,7 +124,6 @@ def format_mixed_node_cluster_spec_lines(
     spec: PipelineClusterSpec,
     *,
     spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
-    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
     single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
     indent: str = "          ",
     policy_id: str = "",
@@ -141,9 +139,8 @@ def format_mixed_node_cluster_spec_lines(
         f"{prefix}num_workers: {spec.num_workers}",
     ]
     lines.extend(
-        _dedicated_access_mode_lines(
+        _single_user_access_mode_lines(
             prefix,
-            data_security_mode_ref=data_security_mode_ref,
             single_user_name_ref=single_user_name_ref,
         )
     )
@@ -171,7 +168,6 @@ def format_job_cluster_spec_lines(
     *,
     spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
     num_workers_ref: str = PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF,
-    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
     single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
     indent: str = "          ",
     include_single_node_custom_tag: bool = True,
@@ -195,9 +191,8 @@ def format_job_cluster_spec_lines(
         f"{conf_indent}spark.master: local[{tier.local_cores}]",
     ]
     lines.extend(
-        _dedicated_access_mode_lines(
+        _single_user_access_mode_lines(
             prefix,
-            data_security_mode_ref=data_security_mode_ref,
             single_user_name_ref=single_user_name_ref,
         )
     )

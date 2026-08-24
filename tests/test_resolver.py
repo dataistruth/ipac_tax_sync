@@ -123,7 +123,7 @@ def test_generate_yaml_uses_per_client_destination_schema_with_suffix():
     assert "clusters:" in yaml_text
     assert "instance_pool_id:" not in yaml_text
     assert "autoscale:" not in yaml_text
-    assert "data_security_mode: ${var.pipeline_data_security_mode}" in yaml_text
+    assert "data_security_mode: SINGLE_USER" in yaml_text
     assert "single_user_name: ${var.lakeflow_single_user}" in yaml_text
     assert "depends_on:" in yaml_text
     assert "resources.schemas.schema_ipac_metadata" in yaml_text

@@ -19,8 +19,7 @@ PIPELINE_CLUSTER_NUM_WORKERS_VAR_REF = "${var.pipeline_cluster_num_workers}"
 HEARTBEAT_JOB_ALERT_MAIL_VAR_REF = "${var.heartbeat_job_alert_mail}"
 RECON_POLL_INTERVAL_SEC_VAR_REF = "${var.recon_poll_interval_sec}"
 LAKEFLOW_SINGLE_USER_VAR_REF = "${var.lakeflow_single_user}"
-# UI "Dedicated" = DATA_SECURITY_MODE_DEDICATED (SINGLE_USER is the legacy alias).
-PIPELINE_DATA_SECURITY_MODE_VAR_REF = "${var.pipeline_data_security_mode}"
+PIPELINE_DATA_SECURITY_MODE = "SINGLE_USER"
 
 
 def databricks_yml_path() -> Path:

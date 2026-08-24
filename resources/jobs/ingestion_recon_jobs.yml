@@ -26,7 +26,7 @@ resources:
             spark_conf:
               spark.databricks.cluster.profile: singleNode
               spark.master: local[32]
-            data_security_mode: ${var.pipeline_data_security_mode}
+            data_security_mode: SINGLE_USER
             single_user_name: ${var.lakeflow_single_user}
             custom_tags:
               ResourceClass: SingleNode

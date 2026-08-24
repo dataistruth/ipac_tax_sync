@@ -54,8 +54,9 @@ variables:
   # Service principal application (client) ID for Dedicated pipeline/recon clusters.
   lakeflow_single_user:
     default: ""
+  # Pipeline/recon clusters use SINGLE_USER + single_user_name (Dedicated SP or user).
   pipeline_data_security_mode:
-    default: DATA_SECURITY_MODE_DEDICATED
+    default: SINGLE_USER
 
 targets:
   dev:
