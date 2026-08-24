@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from util.bundle_config import (
@@ -13,7 +14,7 @@ from util.bundle_config import (
 from util.models import ClientSize, ClusterTierName
 
 if TYPE_CHECKING:
-    from util.models import ClientEntry, ClusterConfig, ClusterTier, EffectiveTable
+    from util.models import ClientEntry, ClusterTier
 
 PipelineSplitMode = Literal["count", "recon"]
 
@@ -32,15 +33,41 @@ CLIENT_SIZE_TO_SERVERLESS_TIER: dict[ClientSize, ClusterTierName] = {
 JOB_TIER_KEYS: tuple[ClusterTierName, ...] = ("j1", "j2", "j3")
 SERVERLESS_TIER_KEYS: tuple[ClusterTierName, ...] = ("s1", "s2", "s3")
 
-# Large client + --split recon: recon_type 1 → D64, 2 → D32, 3+ → D16 (single-node).
-LARGE_CLIENT_RECON_TYPE_TO_TIER: dict[int, ClusterTierName] = {
-    1: "j3",
-    2: "j2",
-    3: "j1",
-}
+PIPELINE_DRIVER_NODE_D8 = "Standard_D8s_v3"
+PIPELINE_WORKER_NODE_D16 = "Standard_D16s_v3"
 
-# Default ingest pipeline tier for all client sizes unless large + split=recon.
-DEFAULT_PIPELINE_TIER: ClusterTierName = "j1"
+
+@dataclass(frozen=True)
+class PipelineClusterSpec:
+    """Mixed-node ingest pipeline cluster (driver + workers)."""
+
+    driver_node_type_id: str
+    worker_node_type_id: str
+    num_workers: int
+    description: str = ""
+
+    @property
+    def summary(self) -> str:
+        return (
+            f"{self.driver_node_type_id} driver + "
+            f"{self.num_workers} x {self.worker_node_type_id} worker(s)"
+        )
+
+
+# Default for small/medium/large (count split) and large recon types 2+.
+DEFAULT_PIPELINE_CLUSTER = PipelineClusterSpec(
+    driver_node_type_id=PIPELINE_DRIVER_NODE_D8,
+    worker_node_type_id=PIPELINE_WORKER_NODE_D16,
+    num_workers=1,
+    description="D8 driver + 1 D16 worker",
+)
+
+LARGE_RECON_TYPE_1_PIPELINE_CLUSTER = PipelineClusterSpec(
+    driver_node_type_id=PIPELINE_DRIVER_NODE_D8,
+    worker_node_type_id=PIPELINE_WORKER_NODE_D16,
+    num_workers=3,
+    description="D8 driver + 3 D16 workers (large, recon_type 1)",
+)
 
 
 def expected_job_tier_for_size(client_size: ClientSize) -> ClusterTierName:
@@ -55,25 +82,28 @@ def resolve_job_tier_for_client(client: ClientEntry) -> ClusterTierName:
     return expected_job_tier_for_size(client.client_size)
 
 
-def resolve_pipeline_tier_key(
+def resolve_pipeline_cluster_spec(
     client: ClientEntry,
     batch: list[EffectiveTable] | None,
     split_mode: PipelineSplitMode,
-) -> ClusterTierName:
+) -> PipelineClusterSpec:
     if client.client_size == "large" and split_mode == "recon" and batch:
         recon_type = int(batch[0].recon_type)
-        return LARGE_CLIENT_RECON_TYPE_TO_TIER.get(recon_type, DEFAULT_PIPELINE_TIER)
-    return DEFAULT_PIPELINE_TIER
+        if recon_type == 1:
+            return LARGE_RECON_TYPE_1_PIPELINE_CLUSTER
+    return DEFAULT_PIPELINE_CLUSTER
 
 
-def tier_for_pipeline_batch(
+def pipeline_cluster_note(
     client: ClientEntry,
-    cluster_config: ClusterConfig,
-    batch: list[EffectiveTable],
     split_mode: PipelineSplitMode,
-) -> ClusterTier | None:
-    tier_key = resolve_pipeline_tier_key(client, batch, split_mode)
-    return cluster_config.tiers.get(tier_key)
+) -> str:
+    if client.client_size == "large" and split_mode == "recon":
+        return (
+            "# pipeline cluster: large + split=recon → "
+            "recon_type_1=D8+3xD16; other recon types=D8+1xD16"
+        )
+    return f"# pipeline cluster: {DEFAULT_PIPELINE_CLUSTER.summary}"
 
 
 def _dedicated_access_mode_lines(
@@ -89,6 +119,51 @@ def _dedicated_access_mode_lines(
         f"{prefix}data_security_mode: {data_security_mode_ref}",
         f"{prefix}single_user_name: {single_user_name_ref}",
     ]
+
+
+def format_mixed_node_cluster_spec_lines(
+    spec: PipelineClusterSpec,
+    *,
+    spark_version_ref: str = PIPELINE_SPARK_VERSION_VAR_REF,
+    data_security_mode_ref: str = PIPELINE_DATA_SECURITY_MODE_VAR_REF,
+    single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
+    indent: str = "          ",
+    policy_id: str = "",
+) -> list[str]:
+    """Multi-node pipeline cluster: separate driver and worker node types."""
+    if spec.num_workers < 1:
+        raise ValueError("pipeline num_workers must be >= 1 for mixed-node clusters")
+    prefix = indent
+    lines = [
+        f"{prefix}driver_node_type_id: {spec.driver_node_type_id}",
+        f"{prefix}node_type_id: {spec.worker_node_type_id}",
+        f"{prefix}spark_version: {spark_version_ref}",
+        f"{prefix}num_workers: {spec.num_workers}",
+    ]
+    lines.extend(
+        _dedicated_access_mode_lines(
+            prefix,
+            data_security_mode_ref=data_security_mode_ref,
+            single_user_name_ref=single_user_name_ref,
+        )
+    )
+    if policy_id:
+        lines.append(f"{prefix}policy_id: {policy_id}")
+        lines.append(f"{prefix}apply_policy_default_values: true")
+    return lines
+
+
+def format_pipeline_cluster_lines(
+    spec: PipelineClusterSpec,
+    *,
+    policy_id: str = "",
+) -> list[str]:
+    """Pipeline cluster block: mixed driver/worker nodes (Dedicated SP)."""
+    lines = ["      clusters:", "        - label: default"]
+    lines.extend(
+        format_mixed_node_cluster_spec_lines(spec, indent="          ", policy_id=policy_id)
+    )
+    return lines
 
 
 def format_job_cluster_spec_lines(
@@ -133,14 +208,7 @@ def format_job_cluster_spec_lines(
                 f"{conf_indent}ResourceClass: SingleNode",
             ]
         )
-    return lines
-
-
-def format_pipeline_cluster_lines(tier: ClusterTier) -> list[str]:
-    """Pipeline cluster block: single-node job tier (Dedicated SP)."""
-    lines = ["      clusters:", "        - label: default"]
-    lines.extend(format_job_cluster_spec_lines(tier, indent="          "))
     if tier.policy_id:
-        lines.append(f"          policy_id: {tier.policy_id}")
-        lines.append("          apply_policy_default_values: true")
+        lines.append(f"{prefix}policy_id: {tier.policy_id}")
+        lines.append(f"{prefix}apply_policy_default_values: true")
     return lines

@@ -11,10 +11,10 @@ from util.bundle_config import (
     UC_CATALOG_VAR_REF,
 )
 from util.cluster_tiers import (
-    DEFAULT_PIPELINE_TIER,
+    DEFAULT_PIPELINE_CLUSTER,
     format_pipeline_cluster_lines,
-    resolve_pipeline_tier_key,
-    tier_for_pipeline_batch,
+    pipeline_cluster_note,
+    resolve_pipeline_cluster_spec,
 )
 from util.schema_generator import schema_resource_key, schema_resource_name_ref
 
@@ -78,8 +78,11 @@ def _parse_lq_key(raw: str | None) -> list[str]:
 
 
 def _tier_for_client(client: ClientEntry, cluster_config: ClusterConfig | None):
+    """Default tier for recon job scaffolding comments (ingest uses PipelineClusterSpec)."""
     cfg = _require_cluster_config(cluster_config)
-    return cfg.tiers.get(DEFAULT_PIPELINE_TIER)
+    from util.cluster_tiers import expected_job_tier_for_size
+
+    return cfg.tiers.get(expected_job_tier_for_size(client.client_size))
 
 
 def _require_cluster_config(cluster_config: ClusterConfig | None) -> ClusterConfig:
@@ -144,10 +147,8 @@ def _pipeline_resource_lines(
     if not tables:
         raise ValueError(f"Pipeline batch {serial} has no tables for {client.client_nm}")
 
-    cfg = _require_cluster_config(cluster_config)
-    tier = tier_for_pipeline_batch(client, cfg, tables, pipeline_split_mode)
+    cluster_spec = resolve_pipeline_cluster_spec(client, tables, pipeline_split_mode)
     pipeline_key = pipeline_resource_key(client.client_nm, serial)
-    job_tier_key = resolve_pipeline_tier_key(client, tables, pipeline_split_mode)
     meta_dep = _schema_depends_on(metadata_schema)
     client_raw_dep = _schema_depends_on(client.raw_schema(dest_schema_suffix))
     pipeline_schema_ref = schema_resource_name_ref(client.raw_schema(dest_schema_suffix))
@@ -174,10 +175,7 @@ def _pipeline_resource_lines(
         f"      schema: {pipeline_schema_ref}",
     ]
 
-    if tier:
-        lines.extend(format_pipeline_cluster_lines(tier))
-    else:
-        lines.append(f"      # cluster tier {job_tier_key}: missing in cluster_config.json")
+    lines.extend(format_pipeline_cluster_lines(cluster_spec))
 
     lines.extend(
         [
@@ -218,22 +216,10 @@ def generate_client_pipelines_yaml(
         split_mode=pipeline_split_mode,
     )
     raw_schema = client.raw_schema(dest_schema_suffix)
-    tier = _tier_for_client(client, cluster_config)
     catalog_comment = resolved_uc_catalog or uc_catalog_ref
     lkf_schema_comment = client.raw_schema(dest_schema_suffix)
 
-    tier_note = ""
-    if tier:
-        if client.client_size == "large" and pipeline_split_mode == "recon":
-            tier_note = (
-                "# client_size: large + split=recon → "
-                "recon_type_1=D64s_v3, recon_type_2=D32s_v3, recon_type_3=D16s_v3 (single-node)"
-            )
-        else:
-            tier_note = (
-                f"# pipeline cluster: {DEFAULT_PIPELINE_TIER} "
-                f"({tier.node_type_id} single-node per pipeline)"
-            )
+    tier_note = pipeline_cluster_note(client, pipeline_split_mode)
 
     batch_summary = ", ".join(str(len(b)) for b in batches)
     if pipeline_split_mode == "recon":

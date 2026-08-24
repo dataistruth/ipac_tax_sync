@@ -1,7 +1,7 @@
 # =============================================================================
 # ipac_delta_sync — Lakeflow Connect scaffolding
 #
-# Compute: Lakeflow pipelines → D16s_v3 single-node default; large + --split recon sizes by recon_type.
+# Compute: Lakeflow pipelines → D8 driver + D16 workers (1 worker default; large recon_type_1 → 3 workers).
 # Recon job uses fixed single-node tier from cluster_config.json (recon_cluster_tier).
 # =============================================================================
 bundle:
