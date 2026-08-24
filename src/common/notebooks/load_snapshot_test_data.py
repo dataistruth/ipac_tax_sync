@@ -78,6 +78,11 @@ FROM (
 ) AS tally"""
 
 
+def sql_mod(expr: str, divisor: int) -> str:
+    """Integer remainder in T-SQL without the % operator (safer near column [PERCENT])."""
+    return f"(({expr}) - (({expr}) / {divisor}) * {divisor})"
+
+
 def add_insert(table_index: int, qualified_name: str, insert_sql: str) -> None:
     if table_index <= num_tables:
         insert_plan.append((table_index, qualified_name, insert_sql))
@@ -142,12 +147,12 @@ INSERT INTO dbo.K1UBTI_SNAPSHOT (
     CLIENTID, TAXPERIODID, UBTITYPE
 )
 SELECT
-    ((rn) % 1000) + 1,
-    ((rn) % 500) + 1,
-    ((rn) % 10000) + 1,
-    CAST((rn) % 100 AS float) / 100.0,
-    CAST((rn) % 100000 AS float) / 100.0,
-    CAST((rn) % 200000 AS float) / 100.0,
+    {sql_mod('rn', 1000)} + 1,
+    {sql_mod('rn', 500)} + 1,
+    {sql_mod('rn', 10000)} + 1,
+    CAST({sql_mod('rn', 100)} AS float) / 100.0,
+    CAST({sql_mod('rn', 100000)} AS float) / 100.0,
+    CAST({sql_mod('rn', 200000)} AS float) / 100.0,
     {client_id},
     {tax_period_id},
     LEFT(N'UBTI_' + CAST(rn AS varchar(20)), 50)
@@ -397,7 +402,12 @@ try:
         with conn.cursor() as cur:
             for table_index, qualified_name, insert_sql in insert_plan:
                 step_start = time.time()
-                cur.execute(insert_sql)
+                try:
+                    cur.execute(insert_sql)
+                except Exception as exc:
+                    print(f"FAILED on [{table_index}] {qualified_name}")
+                    print(insert_sql[:800])
+                    raise exc
                 rowcount = cur.rowcount
                 elapsed = round(time.time() - step_start, 2)
                 results.append(
