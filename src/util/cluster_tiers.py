@@ -171,6 +171,7 @@ def format_job_cluster_spec_lines(
     single_user_name_ref: str | None = LAKEFLOW_SINGLE_USER_VAR_REF,
     indent: str = "          ",
     include_single_node_custom_tag: bool = True,
+    runtime_engine: str | None = None,
 ) -> list[str]:
     """Single-node cluster fields from a job tier (j1/j2/j3) in cluster_config.json."""
     if tier.serverless:
@@ -203,6 +204,8 @@ def format_job_cluster_spec_lines(
                 f"{conf_indent}ResourceClass: SingleNode",
             ]
         )
+    if runtime_engine:
+        lines.append(f"{prefix}runtime_engine: {runtime_engine}")
     if tier.policy_id:
         lines.append(f"{prefix}policy_id: {tier.policy_id}")
         lines.append(f"{prefix}apply_policy_default_values: true")

@@ -228,3 +228,88 @@ def test_ct_count_sql_uses_changetable_operations():
 
     fed = build_federated_ct_count_sql("src_cat", "dbo", "Entity", 8800, 8842, 2)
     assert "CHANGETABLE(CHANGES src_cat.dbo.Entity, 8800)" in fed
+
+
+def test_recon_ready_create_sql_includes_ct_batch_detection_columns():
+    from common.ops.recon_store import recon_ready_create_sql
+
+    sql = recon_ready_create_sql("dev7", "ipac_metadata")
+    assert "loop_started_at TIMESTAMP" in sql
+    assert "completed_at TIMESTAMP NOT NULL" in sql
+    loop_idx = sql.index("loop_started_at")
+    completed_idx = sql.index("completed_at")
+    assert loop_idx < completed_idx
+    assert "num_tables INT" in sql
+    assert "batch_total_volume BIGINT" in sql
+    assert "Seconds from loop_started_at to recon_ready PASS" in sql
+
+
+def test_build_database_recon_ready_row_includes_loop_started_at_and_num_tables():
+    from common.ops.ingestion_recon_ops import (
+        build_database_recon_ready_row,
+        SimplifiedTableOutcome,
+    )
+    from common.ops.recon_store import ReconReadyRow
+    from common.ops.sql_server_audit_store import CtPendingCounts, PendingCtTable
+
+    class _Client:
+        client_nm = "clientpoc"
+        src_db_nm = "ClientPOC_1"
+
+    class _Ctx:
+        pipeline_id = "pid-1"
+
+    loop_started = datetime(2026, 8, 24, 10, 0, 0, tzinfo=timezone.utc)
+    completed = datetime(2026, 8, 24, 10, 5, 0, tzinfo=timezone.utc)
+    outcomes = [
+        SimplifiedTableOutcome(
+            table_nm="t1",
+            schema_name="dbo",
+            recon_type=2,
+            probe=PendingCtTable(
+                "dbo",
+                "t1",
+                100,
+                200,
+                CtPendingCounts(inserts=3, updates=2, deletes=1),
+            ),
+            status="PASS",
+            message="ok",
+            ingest_change_rows=5,
+        ),
+        SimplifiedTableOutcome(
+            table_nm="t2",
+            schema_name="dbo",
+            recon_type=2,
+            probe=PendingCtTable(
+                "dbo",
+                "t2",
+                100,
+                200,
+                CtPendingCounts(inserts=1, updates=1, deletes=1),
+            ),
+            status="PASS",
+            message="ok",
+            ingest_change_rows=4,
+        ),
+    ]
+    row = build_database_recon_ready_row(
+        _Client(),
+        _Ctx(),
+        outcomes,
+        pipeline_id="pid-1",
+        update_id="upd-1",
+        ct_watermark_before=100,
+        ct_head_version=200,
+        completed_at=completed,
+        total_ingestion_sec=300,
+        loop_started_at=loop_started,
+        num_tables=2,
+    )
+    assert isinstance(row, ReconReadyRow)
+    d = row.as_dict()
+    assert d["loop_started_at"] == loop_started
+    assert d["completed_at"] == completed
+    assert d["num_tables"] == 2
+    assert d["total_ingestion_sec"] == 300
+    assert d["batch_total_volume"] == 9

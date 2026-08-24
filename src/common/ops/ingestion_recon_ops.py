@@ -66,7 +66,7 @@ from common.ops.sql_server_audit_store import (
     read_db_watermark,
     read_recon_event_log_watermarks_sql,
     record_recon_table_result,
-    read_recon_batch_detected_at,
+    read_recon_batch_detected_meta,
     record_recon_batch_detected,
     resolve_source_ct_for_recon,
     upsert_db_watermark,
@@ -762,21 +762,37 @@ def _ct_batch_key(database_name: str, ct_head_version: int) -> str:
     return f"{database_name.casefold()}|{ct_head_version}"
 
 
-def resolve_batch_detected_at(
+CtBatchDetectedEntry = tuple[datetime, int | None]
+
+
+def resolve_batch_detected_meta(
     conn: Any,
     database_name: str,
     ct_head_version: int,
-    batch_detected: dict[str, datetime],
-) -> datetime | None:
+    batch_detected: dict[str, CtBatchDetectedEntry],
+) -> tuple[datetime | None, int | None]:
     """In-memory cache first, then SQL audit (first poll that detected this ct_head)."""
     batch_key = _ct_batch_key(database_name, ct_head_version)
     cached = batch_detected.get(batch_key)
     if cached is not None:
-        return cached
-    sql_at = read_recon_batch_detected_at(conn, database_name, ct_head_version)
-    if sql_at is not None:
-        batch_detected[batch_key] = sql_at
-    return sql_at
+        return cached[0], cached[1]
+    sql_meta = read_recon_batch_detected_meta(conn, database_name, ct_head_version)
+    if sql_meta is not None:
+        batch_detected[batch_key] = sql_meta
+        return sql_meta
+    return None, None
+
+
+def resolve_batch_detected_at(
+    conn: Any,
+    database_name: str,
+    ct_head_version: int,
+    batch_detected: dict[str, CtBatchDetectedEntry],
+) -> datetime | None:
+    detected_at, _ = resolve_batch_detected_meta(
+        conn, database_name, ct_head_version, batch_detected
+    )
+    return detected_at
 
 
 def mark_batch_detected(
@@ -784,20 +800,23 @@ def mark_batch_detected(
     client: Any,
     ctx: Any,
     ct_head_version: int,
-    batch_detected: dict[str, datetime],
+    batch_detected: dict[str, CtBatchDetectedEntry],
+    *,
+    num_tables: int | None = None,
 ) -> datetime | None:
     """Record first time this database+ct_head entered the recon queue."""
     batch_key = _ct_batch_key(client.src_db_nm, ct_head_version)
     if batch_key in batch_detected:
-        return batch_detected[batch_key]
+        return batch_detected[batch_key][0]
     detected_at = record_recon_batch_detected(
         conn,
         client.src_db_nm,
         ct_head_version,
         client_nm=client.client_nm,
         pipeline_id=ctx.pipeline_id or "",
+        num_tables=num_tables,
     )
-    batch_detected[batch_key] = detected_at
+    batch_detected[batch_key] = (detected_at, num_tables)
     return detected_at
 
 
@@ -806,7 +825,7 @@ def clear_recon_batch_state(
     client: Any,
     ctx: Any,
     ct_head_version: int,
-    batch_detected: dict[str, datetime],
+    batch_detected: dict[str, CtBatchDetectedEntry],
     verified_cache: dict[str, RowCountVerified],
     history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
 ) -> None:
@@ -1332,12 +1351,15 @@ def build_database_recon_ready_row(
     ct_head_version: int | None,
     completed_at: datetime,
     total_ingestion_sec: int | None = None,
+    loop_started_at: datetime | None = None,
+    num_tables: int | None = None,
     pipeline_keys: list[str] | None = None,
 ) -> ReconReadyRow:
     source_total = sum(
         o.probe.pending.metric_for_recon_type(o.recon_type) for o in outcomes
     )
     ingest_total = sum(o.ingest_change_rows for o in outcomes)
+    batch_total_volume = sum(o.probe.pending.total for o in outcomes)
     db_name = client.src_db_nm
     return ReconReadyRow(
         client_nm=client.client_nm,
@@ -1355,7 +1377,10 @@ def build_database_recon_ready_row(
         tables_json=build_database_tables_json(outcomes, pipeline_keys=pipeline_keys),
         ct_watermark_before=ct_watermark_before,
         ct_head_version=ct_head_version,
+        loop_started_at=loop_started_at,
         total_ingestion_sec=total_ingestion_sec,
+        num_tables=num_tables,
+        batch_total_volume=batch_total_volume,
     )
 
 
@@ -1472,7 +1497,7 @@ def run_simplified_pipeline_recon(
     ct_head_cache: dict[str, int] | None = None,
     row_count_verified_cache: dict[str, RowCountVerified] | None = None,
     delta_history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
-    ct_batch_detected_at: dict[str, datetime] | None = None,
+    ct_batch_detected_at: dict[str, CtBatchDetectedEntry] | None = None,
     table_quiesce_sec: int = 15,
     row_count_sample_size: int = 5,
     history_sample_size: int = 5,
@@ -1600,12 +1625,14 @@ def run_simplified_pipeline_recon(
             ctx,
             pending_tables[0].ct_head_version,
             batch_detected,
+            num_tables=len(pending_tables),
         )
         if detected_at is not None:
             ct_batch_detected_at_value = detected_at
             print(
                 f"[recon] {ctx.pipeline_key}: CT batch tracking "
                 f"ct_head={pending_tables[0].ct_head_version} "
+                f"num_tables={len(pending_tables)} "
                 f"detected_at={detected_at.isoformat()}"
             )
 
@@ -2303,12 +2330,12 @@ def run_simplified_pipeline_recon(
             )
         else:
             completed_at = datetime.now(timezone.utc)
-            detected_at = (
-                resolve_batch_detected_at(
+            detected_at, batch_num_tables = (
+                resolve_batch_detected_meta(
                     conn, client.src_db_nm, ct_head_version, batch_detected
                 )
                 if ct_head_version is not None
-                else None
+                else (None, None)
             )
             total_ingestion_sec: int | None = None
             if detected_at is not None:
@@ -2325,6 +2352,8 @@ def run_simplified_pipeline_recon(
                 ct_head_version=ct_head_version,
                 completed_at=completed_at,
                 total_ingestion_sec=total_ingestion_sec,
+                loop_started_at=detected_at,
+                num_tables=batch_num_tables,
                 pipeline_keys=pipeline_keys,
             )
             try:
@@ -2775,7 +2804,7 @@ def run_all_pipeline_recon(
     row_count_sample_size: int = 5,
     history_sample_size: int = 5,
     row_count_parallel_workers: int = 10,
-    ct_batch_detected_at: dict[str, datetime] | None = None,
+    ct_batch_detected_at: dict[str, CtBatchDetectedEntry] | None = None,
     row_count_verified_cache: dict[str, RowCountVerified] | None = None,
     delta_history_verified_cache: dict[str, DeltaHistoryVerified] | None = None,
 ) -> dict[str, int]:
@@ -2925,11 +2954,13 @@ def run_all_pipeline_recon(
                         ctx,
                         ct_pending_probe[0].ct_head_version,
                         ct_batch_detected_at,
+                        num_tables=len(ct_pending_probe),
                     )
                     if detected is not None:
                         print(
                             f"[recon] {_client_recon_log_label(ipac_client, pipeline_keys)}: "
                             f"DB CT batch queue ct_head={ct_pending_probe[0].ct_head_version} "
+                            f"num_tables={len(ct_pending_probe)} "
                             f"first_detected={detected.isoformat()}"
                         )
                 probe_conn.close()

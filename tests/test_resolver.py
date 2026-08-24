@@ -296,6 +296,15 @@ def test_generate_yaml_splits_by_recon_type():
     assert "--split recon" in yaml_text
 
 
+def test_recon_job_yaml_enables_photon():
+    from util.cluster_generator import generate_ingestion_recon_job_yaml
+
+    cluster_cfg = load_cluster_config()
+    yaml_text = generate_ingestion_recon_job_yaml(cluster_cfg, resolve_recon_cluster_tier())
+    assert "runtime_engine: PHOTON" in yaml_text
+    assert "Photon" in yaml_text.split("resources:", 1)[0]
+
+
 def test_generate_yaml_omits_scd_type_1_when_flag_off():
     catalog = load_common_tables()
     client = get_client("iPC_2025_Dev7_15350")

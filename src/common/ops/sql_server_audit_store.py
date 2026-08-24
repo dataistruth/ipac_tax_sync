@@ -979,22 +979,43 @@ def read_recon_batch_detected_at(
     ct_head_version: int,
 ) -> datetime | None:
     """First audit timestamp when this database+ct_head batch was detected."""
+    meta = read_recon_batch_detected_meta(conn, database_name, ct_head_version)
+    return meta[0] if meta else None
+
+
+def read_recon_batch_detected_meta(
+    conn: Any,
+    database_name: str,
+    ct_head_version: int,
+) -> tuple[datetime | None, int | None] | None:
+    """First detection time and pending table count for database+ct_head batch."""
     db = database_name.replace("'", "''")
     head = int(ct_head_version)
     sql = f"""
-SELECT TOP 1 recorded_at
+SELECT TOP 1
+    recorded_at,
+    TRY_CAST(JSON_VALUE(detail_json, '$.num_tables') AS int) AS num_tables
 FROM {METADATA_TABLE_PREFIX}.ingestion_audit_log
 WHERE event_type = 'RECON_BATCH_DETECTED'
   AND database_name = '{db}'
   AND JSON_VALUE(detail_json, '$.ct_head_version') = '{head}'
 ORDER BY recorded_at ASC
 """.strip()
-    value = fetch_scalar_value(conn, sql, "recorded_at")
-    if value is None:
+    row = fetch_one_as_dict(conn, sql)
+    if not row:
         return None
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-    return None
+    recorded_at = row.get("recorded_at")
+    detected_at: datetime | None = None
+    if recorded_at is not None:
+        if isinstance(recorded_at, datetime):
+            detected_at = (
+                recorded_at.replace(tzinfo=timezone.utc)
+                if recorded_at.tzinfo is None
+                else recorded_at
+            )
+    num_raw = row.get("num_tables")
+    num_tables = int(num_raw) if num_raw is not None else None
+    return detected_at, num_tables
 
 
 def record_recon_batch_detected(
@@ -1004,19 +1025,26 @@ def record_recon_batch_detected(
     *,
     client_nm: str = "",
     pipeline_id: str = "",
+    num_tables: int | None = None,
 ) -> datetime:
     """Persist first detection time for a DB CT batch (survives poll restarts)."""
-    existing = read_recon_batch_detected_at(conn, database_name, ct_head_version)
-    if existing is not None:
-        return existing
+    existing = read_recon_batch_detected_meta(conn, database_name, ct_head_version)
+    if existing is not None and existing[0] is not None:
+        return existing[0]
     detected_at = datetime.now(timezone.utc)
+    detail: dict[str, Any] = {
+        "ct_head_version": int(ct_head_version),
+        "detected_at": detected_at.isoformat(),
+    }
+    if num_tables is not None:
+        detail["num_tables"] = int(num_tables)
     write_audit_log(
         conn,
         "RECON_BATCH_DETECTED",
         client_nm=client_nm,
         database_name=database_name,
         pipeline_id=pipeline_id,
-        detail={"ct_head_version": int(ct_head_version), "detected_at": detected_at.isoformat()},
+        detail=detail,
     )
     return detected_at
 

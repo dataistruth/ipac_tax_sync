@@ -128,7 +128,10 @@ class ReconReadyRow:
     tables_json: str = ""
     ct_watermark_before: int | None = None
     ct_head_version: int | None = None
+    loop_started_at: datetime | None = None
     total_ingestion_sec: int | None = None
+    num_tables: int | None = None
+    batch_total_volume: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -142,14 +145,17 @@ class ReconReadyRow:
             "recon_type": self.recon_type,
             "ingest_change_rows": self.ingest_change_rows,
             "source_change_rows": self.source_change_rows,
-            "completed_at": self.completed_at,
             "artifact_run_id": self.artifact_run_id,
             "ready_for_calc": self.ready_for_calc,
             "database_name": self.database_name or self.table_nm,
             "tables_json": self.tables_json or "",
             "ct_watermark_before": self.ct_watermark_before,
             "ct_head_version": self.ct_head_version,
+            "loop_started_at": self.loop_started_at,
+            "completed_at": self.completed_at,
             "total_ingestion_sec": self.total_ingestion_sec,
+            "num_tables": self.num_tables,
+            "batch_total_volume": self.batch_total_volume,
         }
 
 
@@ -388,14 +394,17 @@ CREATE TABLE IF NOT EXISTS {table} (
   recon_type INT,
   ingest_change_rows BIGINT,
   source_change_rows BIGINT,
-  completed_at TIMESTAMP NOT NULL,
   artifact_run_id STRING COMMENT 'Pipeline update_id for calc gating',
   ready_for_calc BOOLEAN NOT NULL,
   database_name STRING COMMENT 'SQL Server database name',
   tables_json STRING COMMENT 'JSON array of reconciled tables in this batch',
   ct_watermark_before BIGINT COMMENT 'ct_db_watermark at recon start',
   ct_head_version BIGINT COMMENT 'CHANGE_TRACKING_CURRENT_VERSION at PASS',
-  total_ingestion_sec BIGINT COMMENT 'Seconds from CT batch detected to recon_ready PASS'
+  loop_started_at TIMESTAMP COMMENT 'When pending CT batch was first detected (database+ct_head)',
+  completed_at TIMESTAMP NOT NULL,
+  total_ingestion_sec BIGINT COMMENT 'Seconds from loop_started_at to recon_ready PASS',
+  num_tables INT COMMENT 'Pending CT table count when batch was first detected',
+  batch_total_volume BIGINT COMMENT 'Sum of CT I+U+D row counts across all tables in batch'
 )
 USING DELTA
 COMMENT 'PASS rows only — gate for ipac-sdt-calc'
@@ -503,14 +512,17 @@ def _recon_ready_spark_schema():
             StructField("recon_type", IntegerType(), True),
             StructField("ingest_change_rows", LongType(), True),
             StructField("source_change_rows", LongType(), True),
-            StructField("completed_at", TimestampType(), False),
             StructField("artifact_run_id", StringType(), True),
             StructField("ready_for_calc", BooleanType(), False),
             StructField("database_name", StringType(), True),
             StructField("tables_json", StringType(), True),
             StructField("ct_watermark_before", LongType(), True),
             StructField("ct_head_version", LongType(), True),
+            StructField("loop_started_at", TimestampType(), True),
+            StructField("completed_at", TimestampType(), False),
             StructField("total_ingestion_sec", LongType(), True),
+            StructField("num_tables", IntegerType(), True),
+            StructField("batch_total_volume", LongType(), True),
         ]
     )
 
@@ -523,7 +535,10 @@ def _evolve_recon_ready_table(spark, catalog: str, schema: str) -> None:
         "tables_json STRING",
         "ct_watermark_before BIGINT",
         "ct_head_version BIGINT",
+        "loop_started_at TIMESTAMP",
         "total_ingestion_sec BIGINT",
+        "num_tables INT",
+        "batch_total_volume BIGINT",
     ):
         try:
             spark.sql(f"ALTER TABLE {table} ADD COLUMNS ({col_def})")

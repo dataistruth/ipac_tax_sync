@@ -122,7 +122,7 @@ for bundle in client_db_bundles:
 # COMMAND ----------
 
 iteration = 0
-ct_batch_detected_at: dict[str, datetime] = {}
+ct_batch_detected_at: dict[str, tuple[datetime, int | None]] = {}
 row_count_verified_cache: dict[str, RowCountVerified] = {}
 delta_history_verified_cache: dict[str, DeltaHistoryVerified] = {}
 
